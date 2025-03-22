@@ -1,0 +1,16 @@
+{
+  "name": "SmartContentEngine",
+  "version": "1.0.0",
+  "type": "module",
+  "dependencies": {
+    "@langchain/core": "^0.3.42",
+    "@langchain/ollama": "^0.2.0",
+    "axios": "^1.8.3",
+    "cheerio": "^1.0.0",
+    "cli-progress": "^3.12.0",
+    "dotenv": "^16.4.7",
+    "sitemapper": "^3.2.20",
+    "winston": "^3.17.0",
+    "yargs": "^17.7.2"
+  }
+}
