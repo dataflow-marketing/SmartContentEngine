@@ -1,4 +1,4 @@
-# contelligent
+# SmartContentEngine
 
 This project is a modular web content processing suite that leverages AI to perform tasks such as scraping pages, generating summaries, extracting metadata, and more. The project is organized into common modules for file operations, HTTP requests, logging, argument parsing, and configuration, and each processing task is encapsulated in its own script.
 
