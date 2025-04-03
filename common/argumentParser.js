@@ -3,7 +3,7 @@ import { hideBin } from 'yargs/helpers';
 
 export function parseArgs() {
   const argv = yargs(hideBin(process.argv))
-    .usage('Usage: $0 [--sitemap <sitemapUrl>] [--domain <domainName>] [--slow] [--force] [--batch-size <number>]')
+    .usage('Usage: $0 [--sitemap <sitemapUrl>] [--domain <domainName>] [--query <query>] [--slow] [--force] [--batch-size <number>]')
     .option('sitemap', {
       alias: 's',
       type: 'string',
@@ -13,6 +13,11 @@ export function parseArgs() {
       alias: 'd',
       type: 'string',
       description: 'Domain name to process'
+    })
+    .option('query', {
+      alias: 'q',
+      type: 'string',
+      description: 'Query for Q&A generation'
     })
     .option('slow', {
       alias: 'l',
@@ -38,6 +43,7 @@ export function parseArgs() {
   return {
     sitemapUrl: argv.sitemap,
     domainName: argv.domain,
+    query: argv.query,
     slowMode: argv.slow,
     force: argv.force,
     batchSize: argv['batch-size']
