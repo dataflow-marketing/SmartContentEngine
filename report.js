@@ -30,6 +30,7 @@ import { readFile, writeFile } from 'fs/promises';
     const narrativeCounts = {};
     const segmentInterests = {}; // track interests per segment
     const segmentTones = {};     // track tone per segment
+    const segmentContents = {};  // track post content texts per segment
 
     // Process each JSON file to gather report data.
     for (const file of jsonFiles) {
@@ -40,6 +41,7 @@ import { readFile, writeFile } from 'fs/promises';
         const narratives = Array.isArray(data.narrative) ? data.narrative : [];
         const interests = Array.isArray(data.interests) ? data.interests : [];
         const tone = data.tone; // assumed to be a string
+        const content = data.content; // assumed to be the full post content
 
         segments.forEach(segment => {
           // Update posts count per segment.
@@ -49,6 +51,7 @@ import { readFile, writeFile } from 'fs/promises';
           if (!segmentNarratives[segment]) segmentNarratives[segment] = {};
           if (!segmentInterests[segment]) segmentInterests[segment] = {};
           if (!segmentTones[segment]) segmentTones[segment] = {};
+          if (!segmentContents[segment]) segmentContents[segment] = [];
 
           // Process narratives.
           let hasValidNarrative = false;
@@ -79,6 +82,11 @@ import { readFile, writeFile } from 'fs/promises';
           // Process tone.
           if (tone) {
             segmentTones[segment][tone] = (segmentTones[segment][tone] || 0) + 1;
+          }
+          
+          // Capture the post content.
+          if (content && typeof content === 'string') {
+            segmentContents[segment].push(content.trim());
           }
         });
       } catch (error) {
@@ -125,36 +133,45 @@ import { readFile, writeFile } from 'fs/promises';
       reportLines.push(`Segment: ${segment}`);
       reportLines.push(`  - Total Posts: ${totalPosts}`);
 
-      // Top 5 Narratives.
+      // Top 10 Narratives.
       if (segmentNarratives[segment]) {
         const entries = Object.entries(segmentNarratives[segment]).sort((a, b) => b[1] - a[1]);
-        const topNarratives = entries.slice(0, 5);
-        reportLines.push("  - Top Narratives:");
+        const topNarratives = entries.slice(0, 10);
+        reportLines.push("  - Top Narratives (Top 10):");
         topNarratives.forEach(([narrative, count]) => {
           const percentage = ((count / totalPosts) * 100).toFixed(1);
           reportLines.push(`      * ${narrative}: ${count} (${percentage}%)`);
         });
       }
 
-      // Top 5 Interests.
+      // Top 10 Interests.
       if (segmentInterests[segment]) {
         const interestEntries = Object.entries(segmentInterests[segment]).sort((a, b) => b[1] - a[1]);
-        const topInterests = interestEntries.slice(0, 5);
-        reportLines.push("  - Top interests:");
+        const topInterests = interestEntries.slice(0, 10);
+        reportLines.push("  - Top Interests (Top 10):");
         topInterests.forEach(([interest, count]) => {
           const percentage = ((count / totalPosts) * 100).toFixed(1);
           reportLines.push(`      * ${interest}: ${count} (${percentage}%)`);
         });
       }
 
-      // Top 5 Tones.
+      // Top 10 Tones.
       if (segmentTones[segment]) {
         const toneEntries = Object.entries(segmentTones[segment]).sort((a, b) => b[1] - a[1]);
-        const topTones = toneEntries.slice(0, 5);
-        reportLines.push("  - Top tones:");
+        const topTones = toneEntries.slice(0, 10);
+        reportLines.push("  - Top Tones (Top 10):");
         topTones.forEach(([tone, count]) => {
           const percentage = ((count / totalPosts) * 100).toFixed(1);
           reportLines.push(`      * ${tone}: ${count} (${percentage}%)`);
+        });
+      }
+
+      // Add a backup summary of contributing post contents.
+      if (segmentContents[segment] && segmentContents[segment].length > 0) {
+        const sampleContents = segmentContents[segment].slice(0, 3); // sample 3 content blocks
+        reportLines.push("  - Sample Post Contents for This Segment:");
+        sampleContents.forEach((contentText, index) => {
+          reportLines.push(`      ${index + 1}. ${contentText}`);
         });
       }
       

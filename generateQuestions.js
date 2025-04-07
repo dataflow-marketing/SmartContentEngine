@@ -30,6 +30,24 @@ function extractQuotedQuestions(text) {
   return [];
 }
 
+/**
+ * Helper function that attempts to parse the LLM response into a JSON array.
+ */
+function parseQuestions(response) {
+  try {
+    return JSON.parse(response);
+  } catch (err) {
+    logger.warn("Initial JSON parse failed, attempting to extract safe JSON...");
+    const safeJSON = extractJSON(response);
+    try {
+      return JSON.parse(safeJSON);
+    } catch (err2) {
+      logger.warn("Safe JSON parse failed, extracting quoted strings as fallback...");
+      return extractQuotedQuestions(safeJSON);
+    }
+  }
+}
+
 async function generateQuestions() {
   // Parse the domain name from CLI arguments.
   const { domainName } = parseArgs();
@@ -71,7 +89,6 @@ async function generateQuestions() {
   logger.info(`Embedding dimension: ${dim}, Number of vectors: ${nbDocs || (flatArray.length / dim)}`);
 
   // Rebuild the Faiss index using faiss-node.
-  // (Assumes flatArray is a plain array.)
   const faiss = (await import('faiss-node')).default || (await import('faiss-node'));
   const index = new faiss.IndexFlatL2(dim);
   index.add(flatArray);
@@ -120,8 +137,9 @@ async function generateQuestions() {
   }
   logger.info(`Retrieved source references: ${JSON.stringify(sourceReferences)}`);
 
-  // Now define a prompt template for generating questions.
-  // The prompt instructs the LLM to generate 100 questions based on the analysis report and source references.
+  // Define a prompt template for generating questions.
+  // Note the explicit instruction to return only a valid, single-line JSON array of question strings.
+  // Receiving more than 100 questions is acceptable.
   const prompt = `
 You are an expert content strategist.
 Based on the following analysis report:
@@ -129,53 +147,45 @@ Based on the following analysis report:
 ${reportContent}
 ------------------------------------
 And based on the following source references: ${JSON.stringify(sourceReferences)}
-Generate 100 concise, thought-provoking questions that can be used as single-line prompts.
-Return only a valid JSON array of question strings with no additional text.
-  `;
+Generate at least 100 concise, thought-provoking questions that can be used as single-line prompts.
+Return the result as a single-line JSON array of question strings with no additional text, markdown, or formatting.
+`;
 
-  logger.info("Generating 100 questions from the analysis report and source references...");
-  let response;
-  try {
-    response = await llm.call(prompt);
-    logger.info("Raw LLM response:");
-    logger.info(response);
-  } catch (err) {
-    logger.error("LLM call failed: " + err.message);
-    process.exit(1);
-  }
+  logger.info("Generating questions from the analysis report and source references...");
 
   let questions = [];
-  try {
-    if (!response) {
-      throw new Error("LLM returned an empty response.");
-    }
+  let response;
+  const maxAttempts = 3;
+  let attempt = 0;
+
+  // Retry mechanism in case the generated output is invalid or contains fewer than 100 questions.
+  while (attempt < maxAttempts) {
+    attempt++;
     try {
-      questions = JSON.parse(response);
+      response = await llm.call(prompt);
+      logger.info("Raw LLM response:");
+      logger.info(response);
     } catch (err) {
-      logger.warn("Initial JSON parse failed, attempting to extract safe JSON...");
-      const safeJSON = extractJSON(response);
-      try {
-        questions = JSON.parse(safeJSON);
-      } catch (err2) {
-        logger.warn("Safe JSON parse failed, extracting quoted strings as fallback...");
-        questions = extractQuotedQuestions(safeJSON);
+      logger.error("LLM call failed: " + err.message);
+      process.exit(1);
+    }
+
+    questions = parseQuestions(response);
+
+    if (Array.isArray(questions) && questions.length >= 100) {
+      logger.info(`Successfully generated ${questions.length} questions.`);
+      break;
+    } else {
+      logger.warn(`Attempt ${attempt}: Expected at least 100 questions, but received ${Array.isArray(questions) ? questions.length : 'invalid output'}.`);
+      if (attempt < maxAttempts) {
+        logger.info("Retrying the LLM call with the same prompt...");
       }
     }
-  } catch (err) {
-    logger.error("Failed to parse questions JSON: " + err.message);
-    logger.warn("Proceeding with an empty question set.");
-    questions = [];
   }
 
-  if (!Array.isArray(questions)) {
-    logger.warn("The generated output is not an array. Proceeding with an empty array.");
-    questions = [];
-  }
-  
-  if (questions.length !== 100) {
-    logger.warn(`Expected 100 questions, but received ${questions.length}.`);
-  } else {
-    logger.info("Successfully generated 100 questions.");
+  if (!Array.isArray(questions) || questions.length < 100) {
+    logger.error("Failed to generate a valid set of at least 100 questions after multiple attempts.");
+    process.exit(1);
   }
 
   // Save the generated questions to a file.
