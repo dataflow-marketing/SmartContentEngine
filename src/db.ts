@@ -1,16 +1,16 @@
 import mysql from 'mysql2/promise';
 import crypto from 'crypto';
+import { extractFieldsFromBase64Html } from './extractors'; // ✅ use the new extractor
 
 export interface PageData {
   url: string;
-  title: string;
   scraped_at: string;
-  raw_html_base64: string;
+  page_data?: Record<string, any>;
+  raw_html_base64?: string;
 }
 
 // Helper: Creates the database if it does not exist.
 async function createDatabaseIfNotExists(dbName: string, config: { host: string; user: string; password: string; port: number }): Promise<void> {
-  // Connect without specifying a database.
   const connection = await mysql.createConnection({
     host: config.host,
     user: config.user,
@@ -22,16 +22,13 @@ async function createDatabaseIfNotExists(dbName: string, config: { host: string;
 }
 
 export async function getPool(databaseName?: string): Promise<mysql.Pool> {
-  // Use the provided databaseName or fallback to environment variable, or default to 'crawlerdb'
   const rawDbName = databaseName || process.env.DB_DATABASE || 'crawlerdb';
-  // Replace dashes with underscores.
   const dbName = rawDbName.replace(/-/g, '_');
 
-  console.log('**** ',dbName);
+  console.log('**** Using database:', dbName);
 
   const connectionString = process.env.MYSQL_CONNECTION_STRING;
   if (connectionString) {
-    // Assumes the connection string includes the database name.
     return mysql.createPool(connectionString);
   } else {
     const config = {
@@ -41,12 +38,10 @@ export async function getPool(databaseName?: string): Promise<mysql.Pool> {
       port: process.env.DB_PORT ? parseInt(process.env.DB_PORT) : 3306,
     };
 
-
     console.log("Connecting to MySQL with:");
-console.log("Host:", process.env.DB_HOST);
-console.log("User:", process.env.DB_USER);
-console.log("Database:", process.env.DB_DATABASE);
-console.log(process.env.DB_PASSWORD);
+    console.log("Host:", config.host);
+    console.log("User:", config.user);
+    console.log("Database:", dbName);
 
     await createDatabaseIfNotExists(dbName, config);
 
@@ -58,7 +53,7 @@ console.log(process.env.DB_PASSWORD);
 }
 
 export async function initDb(pool: mysql.Pool): Promise<void> {
-  // Create the crawled_urls table with a hashed primary key.
+  // Create crawled_urls table
   await pool.query(`
     CREATE TABLE IF NOT EXISTS crawled_urls (
       url_hash CHAR(32) PRIMARY KEY,
@@ -67,15 +62,21 @@ export async function initDb(pool: mysql.Pool): Promise<void> {
     )
   `);
 
-  // Create the pages table with a unique index on a prefix of the URL.
+  // Create pages table
   await pool.query(`
     CREATE TABLE IF NOT EXISTS pages (
       id INT AUTO_INCREMENT PRIMARY KEY,
       url VARCHAR(2083) NOT NULL,
-      title VARCHAR(1024),
+      page_data JSON NOT NULL,
+      raw_html_base64 LONGTEXT,
       scraped_at DATETIME NOT NULL,
-      raw_html_base64 TEXT,
-      UNIQUE KEY uniq_page_url (url(768))
+
+      -- Generated column: extract title from JSON page_data
+      title VARCHAR(255) GENERATED ALWAYS AS (JSON_UNQUOTE(page_data->'$.title')) STORED,
+
+      -- Indexes
+      UNIQUE KEY uniq_page_url (url(768)),
+      INDEX idx_title (title)
     )
   `);
 }
@@ -86,7 +87,6 @@ export async function loadCrawledUrls(pool: mysql.Pool): Promise<Set<string>> {
 }
 
 export async function saveCrawledUrl(pool: mysql.Pool, url: string): Promise<void> {
-  // Compute MD5 hash of the URL.
   const urlHash = crypto.createHash('md5').update(url).digest('hex');
   await pool.query(
     "INSERT IGNORE INTO crawled_urls (url_hash, url, crawled_at) VALUES (?, ?, NOW())",
@@ -95,8 +95,31 @@ export async function saveCrawledUrl(pool: mysql.Pool, url: string): Promise<voi
 }
 
 export async function savePageData(pool: mysql.Pool, pageData: PageData): Promise<void> {
+  // Always safely initialise page_data
+  const safePageData = pageData.page_data ? { ...pageData.page_data } : {};
+
+  // ✅ If raw_html_base64 is present, extract fields from it
+  if (pageData.raw_html_base64) {
+    const extractedFields = extractFieldsFromBase64Html(pageData.raw_html_base64);
+
+    // Merge extracted fields into page_data
+    Object.assign(safePageData, extractedFields);
+  }
+
+  console.log("Saving page data:", {
+    url: pageData.url,
+    scraped_at: pageData.scraped_at,
+    page_data: safePageData,
+    raw_html_base64: pageData.raw_html_base64 ? '[BASE64 content present]' : '[No base64 content]'
+  });
+
   await pool.query(
-    "INSERT INTO pages (url, title, scraped_at, raw_html_base64) VALUES (?, ?, ?, ?)",
-    [pageData.url, pageData.title, pageData.scraped_at, pageData.raw_html_base64]
+    "INSERT INTO pages (url, page_data, raw_html_base64, scraped_at) VALUES (?, ?, ?, ?)",
+    [
+      pageData.url,
+      JSON.stringify(safePageData),
+      pageData.raw_html_base64 || null,
+      pageData.scraped_at
+    ]
   );
 }
