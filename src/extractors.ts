@@ -25,10 +25,8 @@ function sanitize(value: string | null | undefined, maxLength: number): string {
 function removeHeaderFooter(html: string): string {
   const $ = load(html);
 
-  // Remove obvious header and footer elements
+  // Remove common header/footer elements and wrappers
   $('header, footer').remove();
-
-  // Remove common class-based headers and footers
   $('.header, .site-header, .main-header, .top-bar').remove();
   $('.footer, .site-footer, .main-footer, .global-footer').remove();
   $('.cookie-banner, .cookie-consent, .legal, .disclaimer').remove();
@@ -36,12 +34,15 @@ function removeHeaderFooter(html: string): string {
   return $.html();
 }
 
-export function extractFieldsFromBase64Html(base64Html: string): {
+// Optional: Type for clarity
+export interface ExtractedFields {
   title: string;
   description: string;
   canonical: string;
   text: string;
-} {
+}
+
+export function extractFieldsFromBase64Html(base64Html: string): ExtractedFields {
   try {
     const html = Buffer.from(base64Html, 'base64').toString('utf-8');
 
@@ -52,19 +53,26 @@ export function extractFieldsFromBase64Html(base64Html: string): {
     const rawDescription = $('meta[name="description"]').attr('content') || '';
     const rawCanonical = $('link[rel="canonical"]').attr('href') || '';
 
+    // ✅ Extract text with better sanitization
     const rawText = htmlToText(cleanedHtml, {
       wordwrap: false,
       selectors: [
         { selector: 'script', format: 'skip' },
         { selector: 'style', format: 'skip' },
-      ]
+        { selector: 'a', options: { ignoreHref: true } },
+        { selector: 'img', format: 'skip' },
+      ],
+      limits: {
+        maxInputLength: 500_000, // Safety limit
+      },
+      preserveNewlines: true,
     });
 
-    const extracted = {
+    const extracted: ExtractedFields = {
       title: sanitize(rawTitle, FIELD_LIMITS.title),
       description: sanitize(rawDescription, FIELD_LIMITS.description),
       canonical: sanitize(rawCanonical, FIELD_LIMITS.canonical),
-      text: sanitize(rawText, FIELD_LIMITS.text),
+      text: sanitize(rawText, FIELD_LIMITS.text), // ✅ Final sanitised text
     };
 
     console.log('Extracted fields:', extracted);
@@ -77,7 +85,7 @@ export function extractFieldsFromBase64Html(base64Html: string): {
       title: '',
       description: '',
       canonical: '',
-      text: ''
+      text: '',
     };
   }
 }

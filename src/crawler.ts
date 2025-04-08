@@ -1,7 +1,6 @@
 process.env.CRAWLEE_STORAGE_DIR = 'storage';
 
-import { CheerioCrawler, RequestQueue, Configuration } from 'crawlee';
-import { MemoryStorage } from '@crawlee/memory-storage';
+import { CheerioCrawler, RequestQueue } from 'crawlee';
 import axios from 'axios';
 import { XMLParser } from 'fast-xml-parser';
 import {
@@ -12,11 +11,7 @@ import {
   savePageData,
   PageData,
 } from './db';
-
-const configuration = new Configuration({
-  storage: new MemoryStorage(),
-  persistStorage: false,
-});
+import { extractFieldsFromBase64Html } from './extractors'; // ✅ Import your field extractor
 
 export interface CrawlOptions {
   sitemapUrl?: string;
@@ -34,15 +29,12 @@ async function parseSitemap(sitemapUrl: string): Promise<string[]> {
     const parser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '' });
     const parsed = parser.parse(sitemapXML);
 
-    let urls: string[] = [];
     if (parsed.urlset?.url) {
-      const urlEntries = Array.isArray(parsed.urlset.url)
-        ? parsed.urlset.url
-        : [parsed.urlset.url];
-      urls = urlEntries.map((entry: any) => entry.loc).filter(Boolean);
+      const urlEntries = Array.isArray(parsed.urlset.url) ? parsed.urlset.url : [parsed.urlset.url];
+      return urlEntries.map((entry: any) => entry.loc).filter(Boolean);
     }
 
-    return urls;
+    return [];
   } catch (err: any) {
     console.error(`Error parsing sitemap ${sitemapUrl}: ${err.message}`);
     return [];
@@ -68,7 +60,6 @@ export async function startCrawl(options: CrawlOptions = {}): Promise<void> {
 
   const isSlowMode = process.env.SLOW_MODE === 'true';
   const crawledUrls = await loadCrawledUrls(pool);
-
   const sitemapUrls = [sitemap];
 
   const requestQueue = await RequestQueue.open('default');
@@ -95,15 +86,26 @@ export async function startCrawl(options: CrawlOptions = {}): Promise<void> {
 
       try {
         const html: string = $.html();
-        const title: string = $('title').text().trim();
         const rawHtmlBase64: string = Buffer.from(html, 'utf-8').toString('base64');
+
+        // ✅ Extract cleaned fields including text
+        const extracted = extractFieldsFromBase64Html(rawHtmlBase64);
+
         const scrapedAt: string = new Date().toISOString().slice(0, 19).replace('T', ' ');
 
         const pageData: PageData = {
           url,
           scraped_at: scrapedAt,
           raw_html_base64: rawHtmlBase64,
-          page_data: { title },
+          page_data: {
+            title: extracted.title,
+            summary: '', // Placeholder for future enrichment
+            interests: [],
+            segments: [],
+            tones: [],
+            narratives: [],
+            text: extracted.text, // ✅ Add the extracted text
+          },
         };
 
         await savePageData(pool, pageData);
