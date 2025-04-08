@@ -73,8 +73,6 @@ export function extractFieldsFromBase64Html(base64Html: string): ExtractedFields
       text: sanitize(rawText, FIELD_LIMITS.text), 
     };
 
-    console.log('Extracted fields:', extracted);
-
     return extracted;
   } catch (error) {
     console.error('Error extracting fields:', error);
