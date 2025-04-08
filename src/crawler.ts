@@ -1,4 +1,3 @@
-// ✅ Force memory storage for Crawlee 3.13.1
 process.env.CRAWLEE_STORAGE_DIR = 'storage';
 
 import { CheerioCrawler, RequestQueue, Configuration } from 'crawlee';
@@ -14,7 +13,6 @@ import {
   PageData,
 } from './db';
 
-// Optional: create configuration (won't be passed directly in 3.13.1)
 const configuration = new Configuration({
   storage: new MemoryStorage(),
   persistStorage: false,
@@ -73,7 +71,6 @@ export async function startCrawl(options: CrawlOptions = {}): Promise<void> {
 
   const sitemapUrls = [sitemap];
 
-  // ✅ No args — Crawlee will use env variable to control storage
   const requestQueue = await RequestQueue.open('default');
 
   for (const sitemapUrl of sitemapUrls) {
@@ -139,7 +136,6 @@ import {
   PageData,
 } from './db';
 
-// Optional: create configuration (won't be passed directly in 3.13.1)
 const configuration = new Configuration({
   storage: new MemoryStorage(),
   persistStorage: false,
