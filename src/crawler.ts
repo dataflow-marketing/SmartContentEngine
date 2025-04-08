@@ -1,4 +1,3 @@
-// src/crawlee-crawler.ts
 import { BasicCrawler, RequestQueue } from 'crawlee';
 import axios from 'axios';
 import * as cheerio from 'cheerio';
@@ -7,8 +6,8 @@ import { XMLParser } from "fast-xml-parser";
 import { getPool, initDb, loadCrawledUrls, saveCrawledUrl, savePageData, PageData } from './db';
 
 export interface CrawlOptions {
-  sitemapUrl?: string;      // A single sitemap URL to crawl (required)
-  databaseName?: string;    // Database name to use for storage (required)
+  sitemapUrl?: string;
+  databaseName?: string;
 }
 
 function sleep(ms: number): Promise<void> {
@@ -39,7 +38,6 @@ async function parseSitemap(sitemapUrl: string): Promise<string[]> {
 }
 
 export async function startCrawl(options: CrawlOptions = {}): Promise<void> {
-  // Enforce that a sitemap URL is provided.
   const sitemap = options.sitemapUrl || process.env.SITEMAP_URL;
   if (!sitemap) {
     console.error("No sitemap URL provided.");
@@ -47,29 +45,22 @@ export async function startCrawl(options: CrawlOptions = {}): Promise<void> {
   }
   const sitemapUrls: string[] = [sitemap];
 
-  // Ensure a database name is provided.
   const rawDbName = options.databaseName || process.env.DB_DATABASE;
   if (!rawDbName) {
     console.error("No database name provided.");
     return;
   }
-  // Replace any dashes with underscores.
   const dbName = rawDbName.replace(/-/g, '_');
 
-  // Get a connection pool for the specified database (creating it if needed).
   const pool = await getPool(dbName);
 
-  // Create the necessary tables if they do not exist.
   await initDb(pool);
 
-  // Check the crawl mode (slow or fast) from environment.
   const isSlowMode: boolean = process.env.SLOW_MODE === 'true';
 
-  // Load already-crawled URLs.
   const crawledUrls: Set<string> = await loadCrawledUrls(pool);
   const requestQueue = await RequestQueue.open();
 
-  // Process the sitemap and add new URLs to the request queue.
   for (const sitemapUrl of sitemapUrls) {
     console.log(`Processing sitemap: ${sitemapUrl}`);
     const urls: string[] = await parseSitemap(sitemapUrl);
@@ -81,7 +72,6 @@ export async function startCrawl(options: CrawlOptions = {}): Promise<void> {
     }
   }
 
-  // Configure and run the crawler.
   const crawler = new BasicCrawler({
     requestQueue,
     maxConcurrency: isSlowMode ? 1 : 5,

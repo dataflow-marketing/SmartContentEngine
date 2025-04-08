@@ -2,9 +2,6 @@ import { load } from 'cheerio';
 import sanitizeHtml from 'sanitize-html';
 import { htmlToText } from 'html-to-text';
 
-/**
- * Configuration: field limits to match database schema
- */
 const FIELD_LIMITS = {
   title: 255,
   description: 512,
@@ -12,9 +9,6 @@ const FIELD_LIMITS = {
   text: 10000,
 };
 
-/**
- * Sanitizes extracted text.
- */
 function sanitize(value: string | null | undefined, maxLength: number): string {
   if (!value) return '';
 
@@ -28,9 +22,6 @@ function sanitize(value: string | null | undefined, maxLength: number): string {
   return clean.slice(0, maxLength);
 }
 
-/**
- * Remove known header and footer elements from the HTML
- */
 function removeHeaderFooter(html: string): string {
   const $ = load(html);
 
@@ -45,9 +36,6 @@ function removeHeaderFooter(html: string): string {
   return $.html();
 }
 
-/**
- * Extracts useful fields from base64-encoded HTML.
- */
 export function extractFieldsFromBase64Html(base64Html: string): {
   title: string;
   description: string;

@@ -1,6 +1,6 @@
 import mysql from 'mysql2/promise';
 import crypto from 'crypto';
-import { extractFieldsFromBase64Html } from './extractors'; // ✅ use the new extractor
+import { extractFieldsFromBase64Html } from './extractors'; 
 
 export interface PageData {
   url: string;
@@ -9,7 +9,6 @@ export interface PageData {
   raw_html_base64?: string;
 }
 
-// Helper: Creates the database if it does not exist.
 async function createDatabaseIfNotExists(dbName: string, config: { host: string; user: string; password: string; port: number }): Promise<void> {
   const connection = await mysql.createConnection({
     host: config.host,
@@ -95,14 +94,11 @@ export async function saveCrawledUrl(pool: mysql.Pool, url: string): Promise<voi
 }
 
 export async function savePageData(pool: mysql.Pool, pageData: PageData): Promise<void> {
-  // Always safely initialise page_data
   const safePageData = pageData.page_data ? { ...pageData.page_data } : {};
 
-  // ✅ If raw_html_base64 is present, extract fields from it
   if (pageData.raw_html_base64) {
     const extractedFields = extractFieldsFromBase64Html(pageData.raw_html_base64);
 
-    // Merge extracted fields into page_data
     Object.assign(safePageData, extractedFields);
   }
 
