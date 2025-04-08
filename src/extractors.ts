@@ -25,7 +25,6 @@ function sanitize(value: string | null | undefined, maxLength: number): string {
 function removeHeaderFooter(html: string): string {
   const $ = load(html);
 
-  // Remove common header/footer elements and wrappers
   $('header, footer').remove();
   $('.header, .site-header, .main-header, .top-bar').remove();
   $('.footer, .site-footer, .main-footer, .global-footer').remove();
@@ -34,7 +33,6 @@ function removeHeaderFooter(html: string): string {
   return $.html();
 }
 
-// Optional: Type for clarity
 export interface ExtractedFields {
   title: string;
   description: string;
@@ -72,7 +70,7 @@ export function extractFieldsFromBase64Html(base64Html: string): ExtractedFields
       title: sanitize(rawTitle, FIELD_LIMITS.title),
       description: sanitize(rawDescription, FIELD_LIMITS.description),
       canonical: sanitize(rawCanonical, FIELD_LIMITS.canonical),
-      text: sanitize(rawText, FIELD_LIMITS.text), // ✅ Final sanitised text
+      text: sanitize(rawText, FIELD_LIMITS.text), 
     };
 
     console.log('Extracted fields:', extracted);

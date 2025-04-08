@@ -12,11 +12,10 @@ export interface PageData {
     segments?: string[];
     tones?: string[];
     narratives?: string[];
-    text?: string; // ✅ Added for extracted plain text
+    text?: string; 
   };
 }
 
-// ✅ Creates database if it doesn't exist
 async function createDatabaseIfNotExists(
   dbName: string,
   config: { host: string; user: string; password: string; port: number }
@@ -26,7 +25,6 @@ async function createDatabaseIfNotExists(
   await connection.end();
 }
 
-// ✅ Get MySQL pool connection
 export async function getPool(databaseName?: string): Promise<mysql.Pool> {
   const rawDbName = databaseName || process.env.DB_DATABASE || 'crawlerdb';
   const dbName = rawDbName.replace(/-/g, '_');
@@ -46,7 +44,6 @@ export async function getPool(databaseName?: string): Promise<mysql.Pool> {
   });
 }
 
-// ✅ Initialise tables
 export async function initDb(pool: mysql.Pool): Promise<void> {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS crawled_urls (
@@ -68,13 +65,11 @@ export async function initDb(pool: mysql.Pool): Promise<void> {
   `);
 }
 
-// ✅ Load all previously crawled URLs
 export async function loadCrawledUrls(pool: mysql.Pool): Promise<Set<string>> {
   const [rows] = await pool.query("SELECT url FROM crawled_urls") as [Array<{ url: string }>, any];
   return new Set(rows.map(row => row.url));
 }
 
-// ✅ Save crawled URL with hash
 export async function saveCrawledUrl(pool: mysql.Pool, url: string): Promise<void> {
   const urlHash = crypto.createHash('md5').update(url).digest('hex');
   await pool.query(
@@ -83,7 +78,6 @@ export async function saveCrawledUrl(pool: mysql.Pool, url: string): Promise<voi
   );
 }
 
-// ✅ Save full page data (upsert)
 export async function savePageData(pool: mysql.Pool, pageData: PageData): Promise<void> {
   await pool.query(
     `

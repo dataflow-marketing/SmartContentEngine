@@ -11,7 +11,7 @@ import {
   savePageData,
   PageData,
 } from './db';
-import { extractFieldsFromBase64Html } from './extractors'; // ✅ Import your field extractor
+import { extractFieldsFromBase64Html } from './extractors'; 
 
 export interface CrawlOptions {
   sitemapUrl?: string;
@@ -99,12 +99,12 @@ export async function startCrawl(options: CrawlOptions = {}): Promise<void> {
           raw_html_base64: rawHtmlBase64,
           page_data: {
             title: extracted.title,
-            summary: '', // Placeholder for future enrichment
+            summary: '', 
             interests: [],
             segments: [],
             tones: [],
             narratives: [],
-            text: extracted.text, // ✅ Add the extracted text
+            text: extracted.text, 
           },
         };
 
