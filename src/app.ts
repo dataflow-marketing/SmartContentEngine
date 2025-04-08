@@ -14,6 +14,8 @@ app.use('*', async (c, next) => {
   return next();
 });
 
+app.get('/health', (c) => c.json({ status: 'ok' }));
+
 app.put('/crawl', async (c) => {
   const body = await c.req.json();
   const { sitemap, db, slow } = body;
