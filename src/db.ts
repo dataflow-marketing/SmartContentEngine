@@ -58,6 +58,18 @@ export async function initDb(pool: mysql.Pool): Promise<void> {
       UNIQUE KEY uniq_page_url (url(768))
     )
   `);
+  
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS website (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      website_data JSON
+    )
+  `);
+
+  const [rows] = await pool.query(`SELECT COUNT(*) as count FROM website`) as any[];
+  if (rows[0].count === 0) {
+    await pool.query(`INSERT INTO website (website_data) VALUES ('{}')`);
+  }
 }
 
 export async function loadCrawledUrls(pool: mysql.Pool): Promise<Set<string>> {
@@ -89,7 +101,6 @@ export async function savePageData(pool: mysql.Pool, pageData: PageData): Promis
   );
 }
 
-// ✅ Single field update helper
 export async function updatePageDataField(
   pool: mysql.Pool,
   url: string,
@@ -106,7 +117,6 @@ export async function updatePageDataField(
   );
 }
 
-// ✅ Optional: Multi-field update helper (bulk update)
 export async function updatePageDataFields(
   pool: mysql.Pool,
   url: string,
@@ -129,5 +139,20 @@ export async function updatePageDataFields(
     WHERE url = ?
     `,
     [...params, url]
+  );
+}
+
+export async function updateWebsiteDataField(
+  pool: mysql.Pool,
+  field: string,
+  value: any
+): Promise<void> {
+  await pool.query(
+    `
+    UPDATE website
+    SET website_data = JSON_SET(website_data, '$.${field}', CAST(? AS JSON))
+    WHERE id = 1
+    `,
+    [JSON.stringify(value)]
   );
 }

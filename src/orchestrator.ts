@@ -9,10 +9,12 @@ interface JobModule {
   run: (payload?: any) => Promise<void>;
 }
 
+import * as generateAggregate from './jobs/generateAggregate.js';
 import * as generateContext from './jobs/generateContext.js';
 
 const jobMap: Record<string, JobModule> = {
-  'generateContext': generateContext
+  'generateContext': generateContext,
+  'generateAggregate': generateAggregate  
 };
 
 export async function listJobs() {
