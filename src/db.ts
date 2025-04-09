@@ -12,7 +12,7 @@ export interface PageData {
     segments?: string[];
     tones?: string[];
     narratives?: string[];
-    text?: string; 
+    text?: string;
   };
 }
 
@@ -91,5 +91,48 @@ export async function savePageData(pool: mysql.Pool, pageData: PageData): Promis
       pageData.raw_html_base64,
       JSON.stringify(pageData.page_data),
     ]
+  );
+}
+
+// ✅ Single field update helper
+export async function updatePageDataField(
+  pool: mysql.Pool,
+  url: string,
+  field: keyof PageData['page_data'],
+  value: any
+): Promise<void> {
+  await pool.query(
+    `
+    UPDATE pages
+    SET page_data = JSON_SET(page_data, ?, CAST(? AS JSON))
+    WHERE url = ?
+    `,
+    [`$.${field}`, JSON.stringify(value), url]
+  );
+}
+
+// ✅ Optional: Multi-field update helper (bulk update)
+export async function updatePageDataFields(
+  pool: mysql.Pool,
+  url: string,
+  updates: Record<string, any>
+): Promise<void> {
+  const updateFragments: string[] = [];
+  const params: any[] = [];
+
+  for (const [field, value] of Object.entries(updates)) {
+    updateFragments.push('?, CAST(? AS JSON)');
+    params.push(`$.${field}`, JSON.stringify(value));
+  }
+
+  const updateClause = updateFragments.join(', ');
+
+  await pool.query(
+    `
+    UPDATE pages
+    SET page_data = JSON_SET(page_data, ${updateClause})
+    WHERE url = ?
+    `,
+    [...params, url]
   );
 }

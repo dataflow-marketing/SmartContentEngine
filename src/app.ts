@@ -2,12 +2,13 @@ import 'dotenv/config';
 import { Hono } from 'hono';
 import { serve } from '@hono/node-server';
 import { startCrawl, CrawlOptions } from './crawler';
+import { runJob, listJobs } from './orchestrator';
 
 const app = new Hono();
 
 app.use('*', async (c, next) => {
   const providedKey = c.req.header('x-api-key');
-  const expectedKey = process.env.API_SECRET_KEY; 
+  const expectedKey = process.env.API_SECRET_KEY;
   if (!providedKey || providedKey !== expectedKey) {
     return c.text('Unauthorized', 401);
   }
@@ -41,6 +42,33 @@ app.put('/crawl', async (c) => {
     database: db,
     slow,
   });
+});
+
+app.get('/jobs', async (c) => {
+  try {
+    const jobs = await listJobs();
+    return c.json({ jobs });
+  } catch (error) {
+    console.error(error);
+    return c.json({ error: (error as Error).message }, 500);
+  }
+});
+
+app.post('/jobs/run', async (c) => {
+  const body = await c.req.json();
+  const { job, payload } = body;
+
+  if (!job) {
+    return c.json({ error: 'Job name is required in the request body' }, 400);
+  }
+
+  try {
+    const result = await runJob(job, payload);
+    return c.json({ result });
+  } catch (error) {
+    console.error(error);
+    return c.json({ error: (error as Error).message }, 500);
+  }
 });
 
 serve(app);
