@@ -6,9 +6,9 @@ import { Embeddings } from 'langchain/embeddings/base';
 import { getEmbedding } from '../utilities/embeddings';
 import { parseCompletion } from '../utilities/chain';
 
-interface OverallSummaryPayload {
+interface OverallPayload {
   db: string;
-  prompt: string; // Prompt with placeholder: {summaries} or {summary}
+  prompt: string; // Prompt with placeholder: {dynamicFieldName}
   field: string;  // Target key in website_data (dynamic field name)
 }
 
@@ -31,22 +31,22 @@ async function updateWebsiteDataField(pool: any, targetField: string, value: str
     `,
     [JSON.stringify(value)]
   );
+  console.log(`✅ Database updated: website_data.${targetField} set successfully.`);
 }
 
-export async function run(payload?: OverallSummaryPayload) {
+export async function run(payload?: OverallPayload) {
   if (!payload || !payload.db || !payload.prompt || !payload.field) {
     throw new Error('Missing required payload: { db, prompt, field }');
   }
 
   const { db: databaseName, prompt: payloadPrompt, field: targetField } = payload;
-  console.log(`📝 Starting overall summary generation for database: ${databaseName}, updating website_data.${targetField}`);
+  console.log(`📝 Starting overall generation for database: ${databaseName}, targeting website_data.${targetField}`);
 
   const pool = await getPool(databaseName);
-
   const collectionName = `${databaseName}-${targetField}`;
 
   // Generate embedding for the search query
-  const searchEmbedding = await getEmbedding('aggregate summary');
+  const searchEmbedding = await getEmbedding('aggregate');
 
   const vectorStore = await QdrantVectorStore.fromExistingCollection(
     new CustomEmbeddings(),
@@ -77,18 +77,18 @@ export async function run(payload?: OverallSummaryPayload) {
     return;
   }
 
+  // Prepare the final prompt by replacing the dynamic placeholder
   let finalPrompt = payloadPrompt;
-  if (finalPrompt.includes('{summaries}')) {
-    finalPrompt = finalPrompt.replace('{summaries}', combinedContent);
-  } else if (finalPrompt.includes('{summary}')) {
-    finalPrompt = finalPrompt.replace('{summary}', combinedContent);
-  } else if (finalPrompt.includes(`{${targetField}}`)) {
-    finalPrompt = finalPrompt.replace(`{${targetField}}`, combinedContent);
+  const dynamicPlaceholder = `{${targetField}}`;
+
+  if (finalPrompt.includes(dynamicPlaceholder)) {
+    finalPrompt = finalPrompt.split(dynamicPlaceholder).join(combinedContent); // safer than replace() in case multiple
   } else {
-    console.warn('⚠️ No placeholder matching your field found in the prompt template.');
+    console.warn(`⚠️ No placeholder matching your field (${dynamicPlaceholder}) found in the prompt template.`);
   }
 
   const promptTemplate = PromptTemplate.fromTemplate(finalPrompt);
+
   const llm = new Ollama({
     baseUrl: process.env.OLLAMA_API_URL || 'http://localhost:11434',
     model: process.env.OLLAMA_MODEL || 'llama3',
@@ -107,7 +107,6 @@ export async function run(payload?: OverallSummaryPayload) {
   }
 
   await updateWebsiteDataField(pool, targetField, overallResult);
-  console.log(`✅ Updated website_data.${targetField} with overall result.`);
 
   await pool.end();
   console.log(`✅ Job completed for database: ${databaseName}`);
