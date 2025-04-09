@@ -1,8 +1,7 @@
 process.env.CRAWLEE_STORAGE_DIR = 'storage';
 
 import { CheerioCrawler, RequestQueue } from 'crawlee';
-import axios from 'axios';
-import { XMLParser } from 'fast-xml-parser';
+import Sitemapper from 'sitemapper';
 import {
   getPool,
   initDb,
@@ -11,7 +10,7 @@ import {
   savePageData,
   PageData,
 } from './db';
-import { extractFieldsFromBase64Html } from './extractors'; 
+import { extractFieldsFromBase64Html } from './extractors';
 
 export interface CrawlOptions {
   sitemapUrl?: string;
@@ -24,17 +23,13 @@ function sleep(ms: number): Promise<void> {
 
 async function parseSitemap(sitemapUrl: string): Promise<string[]> {
   try {
-    const response = await axios.get(sitemapUrl);
-    const sitemapXML: string = response.data;
-    const parser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '' });
-    const parsed = parser.parse(sitemapXML);
-
-    if (parsed.urlset?.url) {
-      const urlEntries = Array.isArray(parsed.urlset.url) ? parsed.urlset.url : [parsed.urlset.url];
-      return urlEntries.map((entry: any) => entry.loc).filter(Boolean);
-    }
-
-    return [];
+    const sitemapper = new Sitemapper({
+      timeout: 15000  
+    });
+    const data = await sitemapper.fetch(sitemapUrl);
+    // Limit the URLs based on the max crawl entries (sitemap_max_crawl)
+    const maxEntries = process.env.SITEMAP_MAX_CRAWL ? parseInt(process.env.SITEMAP_MAX_CRAWL) : 10;
+    return data.sites.slice(0, maxEntries);
   } catch (err: any) {
     console.error(`Error parsing sitemap ${sitemapUrl}: ${err.message}`);
     return [];
@@ -88,7 +83,6 @@ export async function startCrawl(options: CrawlOptions = {}): Promise<void> {
         const html: string = $.html();
         const rawHtmlBase64: string = Buffer.from(html, 'utf-8').toString('base64');
 
-        // ✅ Extract cleaned fields including text
         const extracted = extractFieldsFromBase64Html(rawHtmlBase64);
 
         const scrapedAt: string = new Date().toISOString().slice(0, 19).replace('T', ' ');
@@ -99,12 +93,12 @@ export async function startCrawl(options: CrawlOptions = {}): Promise<void> {
           raw_html_base64: rawHtmlBase64,
           page_data: {
             title: extracted.title,
-            summary: '', 
+            summary: '',
             interests: [],
             segments: [],
             tones: [],
             narratives: [],
-            text: extracted.text, 
+            text: extracted.text,
           },
         };
 
