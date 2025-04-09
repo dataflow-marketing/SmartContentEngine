@@ -1,12 +1,25 @@
 import { getPool } from '../db';
 import { Ollama } from '@langchain/ollama';
 import { PromptTemplate } from '@langchain/core/prompts';
-import { buildChain, parseCompletion } from '../utilities/chain';
+import { QdrantVectorStore } from '@langchain/qdrant';
+import { Embeddings } from 'langchain/embeddings/base';
+import { getEmbedding } from '../utilities/embeddings';
+import { parseCompletion } from '../utilities/chain';
 
 interface OverallSummaryPayload {
   db: string;
-  prompt: string; // The prompt template must include a placeholder: either {summaries} or {summary}
-  field: string;  // Target key in the website_data JSON (e.g., "overallSummary")
+  prompt: string; // Prompt with placeholder: {summaries} or {summary}
+  field: string;  // Target key in website_data (dynamic field name)
+}
+
+// Dummy Embeddings implementation to satisfy Langchain's internal checks
+class CustomEmbeddings implements Embeddings {
+  async embedQuery(_text: string): Promise<number[]> {
+    return Array(768).fill(0); // Matching your embedding dimension
+  }
+  async embedDocuments(documents: string[]): Promise<number[][]> {
+    return documents.map(() => Array(768).fill(0));
+  }
 }
 
 async function updateWebsiteDataField(pool: any, targetField: string, value: string): Promise<void> {
@@ -24,46 +37,57 @@ export async function run(payload?: OverallSummaryPayload) {
   if (!payload || !payload.db || !payload.prompt || !payload.field) {
     throw new Error('Missing required payload: { db, prompt, field }');
   }
+
   const { db: databaseName, prompt: payloadPrompt, field: targetField } = payload;
   console.log(`📝 Starting overall summary generation for database: ${databaseName}, updating website_data.${targetField}`);
-  
+
   const pool = await getPool(databaseName);
-  
-  const [rows] = await pool.query(
-    `
-    SELECT JSON_EXTRACT(page_data, '$.summary') AS summary 
-    FROM pages 
-    WHERE JSON_EXTRACT(page_data, '$.summary') IS NOT NULL
-    `
-  ) as [Array<{ summary: string }>, any];
-  
-  if (rows.length === 0) {
-    console.log(`✅ No page summaries found in database: ${databaseName}`);
+
+  const collectionName = `${databaseName}-${targetField}`;
+
+  // Generate embedding for the search query
+  const searchEmbedding = await getEmbedding('aggregate summary');
+
+  const vectorStore = await QdrantVectorStore.fromExistingCollection(
+    new CustomEmbeddings(),
+    {
+      url: process.env.QDRANT_URL || 'http://localhost:6333',
+      collectionName,
+    }
+  );
+
+  const results = await vectorStore.similaritySearchVectorWithScore(searchEmbedding, 20);
+
+  if (!results || results.length === 0) {
+    console.log(`✅ No relevant vectors found in Qdrant collection: ${collectionName}`);
     await pool.end();
     return;
   }
-  console.log(`Found ${rows.length} page summaries.`);
-  
-  const combinedSummaries = rows
-    .map(row => {
-      return typeof row.summary === 'string'
-        ? row.summary.replace(/^"|"$/g, '')
-        : '';
-    })
+
+  console.log(`Found ${results.length} relevant entries from Qdrant.`);
+
+  const combinedContent = results
+    .map(([doc]) => doc.pageContent.trim())
+    .filter(text => text.length > 0)
     .join('\n');
-  
-  // Replace either {summaries} or {summary} depending on which placeholder is in the prompt.
+
+  if (!combinedContent) {
+    console.warn('⚠️ No valid content found in search results. Skipping overall generation.');
+    await pool.end();
+    return;
+  }
+
   let finalPrompt = payloadPrompt;
   if (finalPrompt.includes('{summaries}')) {
-    finalPrompt = finalPrompt.replace('{summaries}', combinedSummaries);
+    finalPrompt = finalPrompt.replace('{summaries}', combinedContent);
   } else if (finalPrompt.includes('{summary}')) {
-    finalPrompt = finalPrompt.replace('{summary}', combinedSummaries);
+    finalPrompt = finalPrompt.replace('{summary}', combinedContent);
+  } else if (finalPrompt.includes(`{${targetField}}`)) {
+    finalPrompt = finalPrompt.replace(`{${targetField}}`, combinedContent);
   } else {
-    console.warn('No placeholder for page summaries found in the prompt template.');
+    console.warn('⚠️ No placeholder matching your field found in the prompt template.');
   }
-  
-  console.log('Final prompt constructed for overall summary generation.');
-  
+
   const promptTemplate = PromptTemplate.fromTemplate(finalPrompt);
   const llm = new Ollama({
     baseUrl: process.env.OLLAMA_API_URL || 'http://localhost:11434',
@@ -71,20 +95,20 @@ export async function run(payload?: OverallSummaryPayload) {
     temperature: 0.3,
     maxRetries: 3,
   });
+
   const chain = promptTemplate.pipe(llm);
-  
   const completion = await chain.invoke({});
-  const overallSummary = await parseCompletion(completion);
-  
-  if (!overallSummary) {
-    console.warn('⚠️ Overall summary generation returned an empty result. No update performed.');
+  const overallResult = await parseCompletion(completion);
+
+  if (!overallResult) {
+    console.warn('⚠️ Overall generation returned an empty result. No update performed.');
     await pool.end();
     return;
   }
-  
-  await updateWebsiteDataField(pool, targetField, overallSummary);
-  console.log(`✅ Updated website_data.${targetField} with overall summary`);
-  
+
+  await updateWebsiteDataField(pool, targetField, overallResult);
+  console.log(`✅ Updated website_data.${targetField} with overall result.`);
+
   await pool.end();
-  console.log(`✅ Overall summary job completed for database: ${databaseName}`);
+  console.log(`✅ Job completed for database: ${databaseName}`);
 }
