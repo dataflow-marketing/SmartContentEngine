@@ -23,7 +23,7 @@ export async function run(payload?: SummaryJobPayload) {
     `
     SELECT url, page_data
     FROM pages
-    /* WHERE JSON_EXTRACT(page_data, '$.summary') IS NULL */
+    WHERE JSON_EXTRACT(page_data, '$.summary') IS NULL
     `
   ) as [Array<{ url: string; page_data: any }>, any];
   
