@@ -1,4 +1,3 @@
-// src/jobs/genai/summary.ts
 import { getPool, updatePageDataField } from '../db';
 import { Ollama } from '@langchain/ollama';
 import { buildChain, parseCompletion } from '../utilities/chain';
@@ -18,7 +17,6 @@ export async function run(payload?: SummaryJobPayload) {
   
   const pool = await getPool(databaseName);
   
-  // Query all pages without a summary (adjust WHERE clause as needed)
   const [rows] = await pool.query(
     `
     SELECT url, page_data
@@ -49,13 +47,10 @@ export async function run(payload?: SummaryJobPayload) {
     console.log(`🚀 Generating summary for ${url}`);
     
     try {
-      // Use our new prompts module to inject sanitized values into the prompt.
       const finalPrompt = preparePrompt(payloadPrompt, page_data);
       
-      // Build the chain using the final prompt.
       const chain = buildChain(finalPrompt);
       
-      // Invoke the chain (pass an empty object since the prompt is complete).
       const completion = await chain.invoke({});
       
       if (!completion) {
