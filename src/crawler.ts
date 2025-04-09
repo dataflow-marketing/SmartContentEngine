@@ -24,12 +24,10 @@ function sleep(ms: number): Promise<void> {
 async function parseSitemap(sitemapUrl: string): Promise<string[]> {
   try {
     const sitemapper = new Sitemapper({
-      timeout: 15000  
+      timeout: 15000,
     });
     const data = await sitemapper.fetch(sitemapUrl);
-    // Limit the URLs based on the max crawl entries (sitemap_max_crawl)
-    const maxEntries = process.env.SITEMAP_MAX_CRAWL ? parseInt(process.env.SITEMAP_MAX_CRAWL) : 10;
-    return data.sites.slice(0, maxEntries);
+    return data.sites;
   } catch (err: any) {
     console.error(`Error parsing sitemap ${sitemapUrl}: ${err.message}`);
     return [];
@@ -59,15 +57,18 @@ export async function startCrawl(options: CrawlOptions = {}): Promise<void> {
 
   const requestQueue = await RequestQueue.open('default');
 
+  const maxEntries = process.env.SITEMAP_MAX_CRAWL ? parseInt(process.env.SITEMAP_MAX_CRAWL) : 10;
+
   for (const sitemapUrl of sitemapUrls) {
     console.log(`Processing sitemap: ${sitemapUrl}`);
     const urls = await parseSitemap(sitemapUrl);
     console.log(`Found ${urls.length} URLs in sitemap ${sitemapUrl}`);
 
     const newUrls = urls.filter((url) => !crawledUrls.has(url));
-    console.log(`Queueing ${newUrls.length} new URLs for crawling.`);
+    const limitedUrls = newUrls.slice(0, maxEntries);
+    console.log(`Queueing ${limitedUrls.length} new URLs for crawling.`);
 
-    for (const url of newUrls) {
+    for (const url of limitedUrls) {
       await requestQueue.addRequest({ url, uniqueKey: url });
     }
   }
