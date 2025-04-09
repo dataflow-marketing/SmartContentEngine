@@ -93,11 +93,6 @@ export async function startCrawl(options: CrawlOptions = {}): Promise<void> {
           raw_html_base64: rawHtmlBase64,
           page_data: {
             title: extracted.title,
-            summary: '',
-            interests: [],
-            segments: [],
-            tones: [],
-            narratives: [],
             text: extracted.text,
           },
         };

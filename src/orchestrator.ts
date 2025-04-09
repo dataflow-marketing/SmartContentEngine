@@ -9,28 +9,18 @@ interface JobModule {
   run: (payload?: any) => Promise<void>;
 }
 
-// ✅ Hardcoded job imports
-import * as generateSummary from './jobs/generateSummary.js';
-//import * as genaiInterests from './genai/interests.js';
-// Add new jobs here 👇
-// import * as otherJob from './other/jobName.js';
+import * as generateContext from './jobs/generateContext.js';
 
-// ✅ Hardcoded job map
 const jobMap: Record<string, JobModule> = {
-  'generateSummary': generateSummary,
-//  'genai:interests': genaiInterests,
-  // Add new jobs here 👇
-  // 'other:jobName': otherJob,
+  'generateContext': generateContext
 };
 
-// ✅ List all jobs
 export async function listJobs() {
   console.log('📂 Hardcoded jobs:');
   Object.keys(jobMap).forEach((job) => console.log(`✅ ${job}`));
   return Object.keys(jobMap);
 }
 
-// ✅ Run selected job or all
 export async function runJob(jobName: string, payload?: any) {
   if (jobName === 'all') {
     const results = await Promise.allSettled(

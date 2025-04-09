@@ -7,11 +7,6 @@ export interface PageData {
   raw_html_base64: string;
   page_data: {
     title: string;
-    summary?: string;
-    interests?: string[];
-    segments?: string[];
-    tones?: string[];
-    narratives?: string[];
     text?: string;
   };
 }
