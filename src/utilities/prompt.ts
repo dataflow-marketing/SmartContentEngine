@@ -1,25 +1,12 @@
 import { sanitizeText } from './text';
 
-export function preparePrompt(template: string, dataSources: Record<string, Record<string, any>>): string {
-  return template.replace(/{([\w.]+)}/g, (match, fullKey) => {
-    const [sourceName, fieldName] = fullKey.split('.');
-
-    if (!sourceName || !fieldName) {
-      throw new Error(`Invalid placeholder format: '${fullKey}'. Use {source.field}`);
+export function preparePrompt(template: string, pageData: Record<string, any>): string {
+  return template.replace(/{(\w+)}/g, (match, key) => {
+    if (!(key in pageData)) {
+      throw new Error(`Missing field '${key}' in page data`);
     }
-
-    const source = dataSources[sourceName];
-
-    if (!source) {
-      throw new Error(`Missing data source '${sourceName}' in provided data`);
-    }
-
-    if (!(fieldName in source)) {
-      throw new Error(`Missing field '${fieldName}' in data source '${sourceName}'`);
-    }
-
-    const value = source[fieldName];
-
+    const value = pageData[key];
+    // If the value is a string, sanitize it; otherwise convert to string.
     if (typeof value === 'string') {
       return sanitizeText(value);
     } else {
