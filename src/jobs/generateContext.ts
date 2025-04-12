@@ -55,33 +55,30 @@ export async function run(payload?: jobPayload) {
 
   const pool = await getPool(databaseName);
 
-  // ==================== New Addition: Fetch website_data ====================
-  const websiteQuery = `SELECT website_data FROM website LIMIT 1`;
-  const websiteRes = await pool.query(websiteQuery) as Array<{ website_data: any }>;
-  let websiteData = {};
-  if (websiteRes && websiteRes.length > 0) {
-    websiteData = typeof websiteRes[0].website_data === 'string'
-      ? JSON.parse(websiteRes[0].website_data)
-      : websiteRes[0].website_data;
-  } else {
-    console.warn('⚠️ No website_data found in website table. Using empty object.');
-  }
-  // =========================================================================
+  const queryWebsite = `
+    SELECT website_data 
+    FROM website 
+    LIMIT 1 
+  `;
+  const [rowsWebsite] = await pool.query(queryWebsite);
+  console.log(rowsWebsite);
+  const website_data = rowsWebsite[0].website_data
+  console.log(rowsWebsite[0].website_data);
 
-  const query = `
+  const queryPages = `
     SELECT url, page_data
     FROM pages
-    WHERE JSON_EXTRACT(page_data, '$.${targetField}') IS NULL 
+    /* WHERE JSON_EXTRACT(page_data, '$.${targetField}') IS NULL */
   `;
-  const [rows] = await pool.query(query) as [Array<{ url: string; page_data: any }>, any];
+  const [rowsPages] = await pool.query(queryPages) as [Array<{ url: string; page_data: any }>, any];
 
-  if (rows.length === 0) {
+  if (rowsPages.length === 0) {
     console.log(`✅ No pages to process in database: ${databaseName}`);
     await pool.end();
     return;
   }
 
-  console.log(`Found ${rows.length} pages to process.`);
+  console.log(`Found ${rowsPages.length} pages to process.`);
 
   const llm = new Ollama({
     baseUrl: process.env.OLLAMA_API_URL || 'http://localhost:11434',
@@ -104,7 +101,7 @@ export async function run(payload?: jobPayload) {
     }
   );
 
-  for (const row of rows) {
+  for (const row of rowsPages) {
     const { url, page_data } = row;
 
     if (!page_data?.text) {
@@ -118,12 +115,11 @@ export async function run(payload?: jobPayload) {
       // Build the prompt data object. Now we include the fetched websiteData.
       const promptData = {
         page: page_data,       // Data from pages table record.
-        website: websiteData   // Data from website table (fetched before loop).
+        website: website_data   // Data from website table (fetched before loop).
       };
 
       // Prepare the final prompt using your preparePrompt function.
       const finalPrompt = preparePrompt(payloadPrompt, promptData);
-      console.log(finalPrompt);
 
       const chain = buildChain(finalPrompt);
       const completion = await chain.invoke({});
