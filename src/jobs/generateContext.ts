@@ -7,7 +7,7 @@ import { QdrantVectorStore } from '@langchain/qdrant';
 import { Embeddings } from 'langchain/embeddings/base';
 import { QdrantClient } from '@qdrant/js-client-rest';
 
-interface GenAIJobPayload {
+interface jobPayload {
   db: string;
   prompt: string;
   field: string;
@@ -45,7 +45,7 @@ async function ensureCollectionExists(collectionName: string, dimension: number)
   }
 }
 
-export async function run(payload?: GenAIJobPayload) {
+export async function run(payload?: jobPayload) {
   if (!payload || !payload.db || !payload.prompt || !payload.field) {
     throw new Error('Missing required payload: { db, prompt, field }');
   }
@@ -55,16 +55,29 @@ export async function run(payload?: GenAIJobPayload) {
 
   const pool = await getPool(databaseName);
 
+  // ==================== New Addition: Fetch website_data ====================
+  const websiteQuery = `SELECT website_data FROM website LIMIT 1`;
+  const websiteRes = await pool.query(websiteQuery) as Array<{ website_data: any }>;
+  let websiteData = {};
+  if (websiteRes && websiteRes.length > 0) {
+    websiteData = typeof websiteRes[0].website_data === 'string'
+      ? JSON.parse(websiteRes[0].website_data)
+      : websiteRes[0].website_data;
+  } else {
+    console.warn('⚠️ No website_data found in website table. Using empty object.');
+  }
+  // =========================================================================
+
   const query = `
     SELECT url, page_data
     FROM pages
     WHERE JSON_EXTRACT(page_data, '$.${targetField}') IS NULL 
   `;
-
   const [rows] = await pool.query(query) as [Array<{ url: string; page_data: any }>, any];
 
   if (rows.length === 0) {
     console.log(`✅ No pages to process in database: ${databaseName}`);
+    await pool.end();
     return;
   }
 
@@ -102,7 +115,16 @@ export async function run(payload?: GenAIJobPayload) {
     console.log(`🚀 Processing ${url}`);
 
     try {
-      const finalPrompt = preparePrompt(payloadPrompt, page_data);
+      // Build the prompt data object. Now we include the fetched websiteData.
+      const promptData = {
+        page: page_data,       // Data from pages table record.
+        website: websiteData   // Data from website table (fetched before loop).
+      };
+
+      // Prepare the final prompt using your preparePrompt function.
+      const finalPrompt = preparePrompt(payloadPrompt, promptData);
+      console.log(finalPrompt);
+
       const chain = buildChain(finalPrompt);
       const completion = await chain.invoke({});
 
@@ -129,17 +151,17 @@ export async function run(payload?: GenAIJobPayload) {
         continue;
       }
 
-      // ✅ Store in Qdrant with addDocuments to populate pageContent
+      // Store the document in Qdrant.
       await vectorStore.addDocuments(
         [
           {
-            pageContent: processedResult, // ✅ This becomes retrievable pageContent!
+            pageContent: processedResult,
             metadata: {
               url,
               [targetField]: processedResult,
-              summary: processedResult, // Optional, good practice for aggregation
+              summary: processedResult, // Optional: good for aggregation.
             },
-          }
+          },
         ],
         [embedding]
       );
@@ -152,4 +174,5 @@ export async function run(payload?: GenAIJobPayload) {
   }
 
   console.log(`✅ Job completed for database: ${databaseName}`);
+  await pool.end();
 }

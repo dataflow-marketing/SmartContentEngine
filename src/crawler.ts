@@ -23,9 +23,7 @@ function sleep(ms: number): Promise<void> {
 
 async function parseSitemap(sitemapUrl: string): Promise<string[]> {
   try {
-    const sitemapper = new Sitemapper({
-      timeout: 15000,
-    });
+    const sitemapper = new Sitemapper({ timeout: 15000 });
     const data = await sitemapper.fetch(sitemapUrl);
     return data.sites;
   } catch (err: any) {
@@ -71,6 +69,20 @@ export async function startCrawl(options: CrawlOptions = {}): Promise<void> {
     for (const url of limitedUrls) {
       await requestQueue.addRequest({ url, uniqueKey: url });
     }
+  }
+
+  // Pre-update the website_data JSON with the sitemap URL.
+  // This ensures that even if the crawl fails, the sitemap URL is recorded.
+  try {
+    await pool.query(
+      `UPDATE website
+       SET website_data = JSON_SET(COALESCE(website_data, '{}'), '$.sitemap', ?)
+       WHERE id = 1`,
+      [sitemap]
+    );
+    console.log(`✅ Pre-update: website.website_data updated with sitemap URL: ${sitemap}`);
+  } catch (error: any) {
+    console.error(`❌ Error pre-updating website_data with sitemap URL: ${error.message}`);
   }
 
   const crawler = new CheerioCrawler({
