@@ -6,13 +6,12 @@ import { Embeddings } from 'langchain/embeddings/base';
 import { getEmbedding } from '../utilities/embeddings';
 import { parseCompletion } from '../utilities/chain';
 
-interface OverallPayload {
+interface jobPayload {
   db: string;
-  prompt: string; // Prompt with placeholder: {dynamicFieldName}
-  field: string;  // Target key in website_data (dynamic field name)
+  prompt: string; 
+  field: string; 
 }
 
-// Dummy Embeddings implementation to satisfy Langchain's internal checks
 class CustomEmbeddings implements Embeddings {
   async embedQuery(_text: string): Promise<number[]> {
     return Array(768).fill(0); // Matching your embedding dimension
@@ -34,7 +33,7 @@ async function updateWebsiteDataField(pool: any, targetField: string, value: str
   console.log(`✅ Database updated: website_data.${targetField} set successfully.`);
 }
 
-export async function run(payload?: OverallPayload) {
+export async function run(payload?: jobPayload) {
   if (!payload || !payload.db || !payload.prompt || !payload.field) {
     throw new Error('Missing required payload: { db, prompt, field }');
   }
