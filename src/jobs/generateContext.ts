@@ -130,6 +130,7 @@ export async function run(payload?: jobPayload) {
       }
 
       const processedResult = await parseCompletion(completion);
+      console.log(processedResult);
 
       if (!processedResult) {
         console.warn(`⚠️ Processed result empty for ${url}. Skipping update.`);
