@@ -3,9 +3,8 @@ import { Ollama } from '@langchain/ollama';
 import { buildChain, parseCompletion } from '../utilities/chain';
 import { preparePrompt } from '../utilities/prompt';
 import { getEmbedding } from '../utilities/embeddings';
-import { QdrantVectorStore } from '@langchain/qdrant';
-import { Embeddings } from 'langchain/embeddings/base';
 import { QdrantClient } from '@qdrant/js-client-rest';
+import crypto from 'crypto';
 
 interface jobPayload {
   db: string;
@@ -13,38 +12,66 @@ interface jobPayload {
   field: string;
 }
 
-// Dummy Embeddings implementation to satisfy Langchain's internal checks
-class CustomEmbeddings implements Embeddings {
-  async embedQuery(_text: string): Promise<number[]> {
-    return Array(768).fill(0); // Matching your actual embedding dimension
-  }
-  async embedDocuments(documents: string[]): Promise<number[][]> {
-    return documents.map(() => Array(768).fill(0));
-  }
+// ✅ Generate deterministic UUID from term
+function generateId(content: string): string {
+  const hash = crypto.createHash('sha1').update(content).digest('hex');
+  return [
+    hash.substring(0, 8),
+    hash.substring(8, 12),
+    hash.substring(12, 16),
+    hash.substring(16, 20),
+    hash.substring(20, 32),
+  ].join('-');
 }
 
-async function ensureCollectionExists(collectionName: string, dimension: number) {
-  const client = new QdrantClient({
-    url: process.env.QDRANT_URL || 'http://localhost:6333',
+// ✅ Ensure existing URLs are always an array
+function ensureArray(input: string[] | string | undefined): string[] {
+  if (!input) return [];
+  return Array.isArray(input) ? input : [input];
+}
+
+// ✅ Get existing point from Qdrant by vector ID (CORRECTED)
+async function getExistingPoint(client: QdrantClient, collectionName: string, id: string) {
+  const response = await client.retrieve(collectionName, {
+    ids: [id],
+    with_payload: true,
+    with_vector: false,
   });
 
-  const collections = await client.getCollections();
-  const exists = collections.collections.some(col => col.name === collectionName);
+  return response?.length > 0 ? response[0] : null;
+}
 
-  if (!exists) {
-    console.log(`📦 Creating Qdrant collection '${collectionName}' with dimension ${dimension}`);
-    await client.createCollection(collectionName, {
-      vectors: {
-        size: dimension,
-        distance: 'Cosine',
-      },
-    });
-    console.log(`✅ Collection '${collectionName}' created.`);
-  } else {
+// ✅ Update payload only
+async function updatePayloadOnly(client: QdrantClient, collectionName: string, id: string, payload: Record<string, any>) {
+  await client.setPayload(collectionName, {
+    points: [id],
+    payload,
+  });
+}
+
+// ✅ Ensure collection exists (no errors, safe)
+async function ensureCollectionExists(client: QdrantClient, collectionName: string, dimension: number) {
+  try {
+    await client.getCollection(collectionName);
     console.log(`📦 Qdrant collection '${collectionName}' already exists.`);
+  } catch (error: any) {
+    if (error.status === 404 || error.response?.status === 404) {
+      console.log(`📦 Collection '${collectionName}' does not exist. Creating...`);
+      await client.createCollection(collectionName, {
+        vectors: {
+          size: dimension,
+          distance: 'Cosine',
+        },
+      });
+      console.log(`✅ Collection '${collectionName}' created.`);
+    } else {
+      console.error(`❌ Error checking/creating collection:`, error);
+      throw error;
+    }
   }
 }
 
+// ✅ Main run function
 export async function run(payload?: jobPayload) {
   if (!payload || !payload.db || !payload.prompt || !payload.field) {
     throw new Error('Missing required payload: { db, prompt, field }');
@@ -55,22 +82,13 @@ export async function run(payload?: jobPayload) {
 
   const pool = await getPool(databaseName);
 
-  const queryWebsite = `
-    SELECT website_data 
-    FROM website 
-    LIMIT 1 
-  `;
-  const [rowsWebsite] = await pool.query(queryWebsite);
-  console.log(rowsWebsite);
-  const website_data = rowsWebsite[0].website_data
-  console.log(rowsWebsite[0].website_data);
+  const [rowsWebsite] = await pool.query(`SELECT website_data FROM website LIMIT 1`);
+  const website_data = rowsWebsite[0].website_data;
 
-  const queryPages = `
+  const [rowsPages] = await pool.query(`
     SELECT url, page_data
     FROM pages
-    /* WHERE JSON_EXTRACT(page_data, '$.${targetField}') IS NULL */
-  `;
-  const [rowsPages] = await pool.query(queryPages) as [Array<{ url: string; page_data: any }>, any];
+  `) as [Array<{ url: string; page_data: any }>, any];
 
   if (rowsPages.length === 0) {
     console.log(`✅ No pages to process in database: ${databaseName}`);
@@ -87,19 +105,15 @@ export async function run(payload?: jobPayload) {
     maxRetries: 3,
   });
 
-  // Dynamic collection name: databaseName-field
   const collectionName = `${databaseName}-${targetField}`;
-  const embeddingDimension = 768; // Match your embedding dimension
+  const embeddingDimension = 768;
 
-  await ensureCollectionExists(collectionName, embeddingDimension);
+  const qdrantClient = new QdrantClient({
+    url: process.env.QDRANT_URL || 'http://localhost:6333',
+  });
 
-  const vectorStore = await QdrantVectorStore.fromExistingCollection(
-    new CustomEmbeddings(),
-    {
-      url: process.env.QDRANT_URL || 'http://localhost:6333',
-      collectionName,
-    }
-  );
+  // ✅ Ensure collection exists before proceeding
+  await ensureCollectionExists(qdrantClient, collectionName, embeddingDimension);
 
   for (const row of rowsPages) {
     const { url, page_data } = row;
@@ -112,15 +126,8 @@ export async function run(payload?: jobPayload) {
     console.log(`🚀 Processing ${url}`);
 
     try {
-      // Build the prompt data object. Now we include the fetched websiteData.
-      const promptData = {
-        page: page_data,       // Data from pages table record.
-        website: website_data   // Data from website table (fetched before loop).
-      };
-
-      // Prepare the final prompt using your preparePrompt function.
+      const promptData = { page: page_data, website: website_data };
       const finalPrompt = preparePrompt(payloadPrompt, promptData);
-
       const chain = buildChain(finalPrompt);
       const completion = await chain.invoke({});
 
@@ -130,7 +137,6 @@ export async function run(payload?: jobPayload) {
       }
 
       const processedResult = await parseCompletion(completion);
-      console.log(processedResult);
 
       if (!processedResult) {
         console.warn(`⚠️ Processed result empty for ${url}. Skipping update.`);
@@ -140,30 +146,52 @@ export async function run(payload?: jobPayload) {
       await updatePageDataField(pool, url, targetField, processedResult);
       console.log(`✅ Updated ${targetField} for ${url}`);
 
-      const embedding = await getEmbedding(processedResult);
-      console.log(`Embedding size: ${embedding.length}`);
+      const terms = Array.isArray(processedResult) ? processedResult : [processedResult];
 
-      if (!embedding || embedding.length === 0) {
-        console.warn(`⚠️ Embedding generation failed for ${url}. Skipping embedding update.`);
-        continue;
+      for (const term of terms) {
+        const id = generateId(term);
+
+        const existingPoint = await getExistingPoint(qdrantClient, collectionName, id);
+
+        let urls: string[] = [url];
+
+        if (existingPoint) {
+          console.log(`ℹ️ Term "${term}" already exists, merging URLs.`);
+          const existingUrls = ensureArray(existingPoint.payload?.urls);
+          urls = Array.from(new Set([...existingUrls, url]));
+
+          await updatePayloadOnly(qdrantClient, collectionName, id, {
+            [targetField]: term,
+            summary: term,
+            urls,
+          });
+
+          console.log(`✅ Updated payload for term: "${term}" with URLs count: ${urls.length}`);
+        } else {
+          const embedding = await getEmbedding(term);
+
+          if (!embedding || embedding.length === 0) {
+            console.warn(`⚠️ Embedding generation failed for term "${term}". Skipping.`);
+            continue;
+          }
+
+          await qdrantClient.upsert(collectionName, {
+            points: [
+              {
+                id,
+                vector: embedding,
+                payload: {
+                  [targetField]: term,
+                  summary: term,
+                  urls,
+                },
+              },
+            ],
+          });
+
+          console.log(`✅ Inserted new vector for term: "${term}"`);
+        }
       }
-
-      // Store the document in Qdrant.
-      await vectorStore.addDocuments(
-        [
-          {
-            pageContent: processedResult,
-            metadata: {
-              url,
-              [targetField]: processedResult,
-              summary: processedResult, // Optional: good for aggregation.
-            },
-          },
-        ],
-        [embedding]
-      );
-
-      console.log(`✅ Stored document in Qdrant for ${url}`);
 
     } catch (error) {
       console.error(`❌ Error processing ${url}:`, error);

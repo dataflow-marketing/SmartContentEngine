@@ -12,14 +12,27 @@ export function buildChain(promptTemplateString: string) {
   return promptTemplate.pipe(llm);
 }
 
-export async function parseCompletion(completion: any): Promise<string> {
+export async function parseCompletion(completion: any): Promise<string | string[]> {
   if (!completion) return '';
+
   try {
-    const parsed = JSON.parse(
-      typeof completion === 'string' ? completion : completion.text
-    );
-    return parsed.summary || (typeof completion === 'string' ? completion : completion.text).trim();
+    const rawText = typeof completion === 'string' ? completion : completion.text;
+    const parsed = JSON.parse(rawText);
+
+    // ✅ If parsed is an array, return it directly
+    if (Array.isArray(parsed)) {
+      return parsed;
+    }
+
+    // ✅ If parsed has a summary field, return it
+    if (parsed && typeof parsed.summary === 'string') {
+      return parsed.summary.trim();
+    }
+
+    // ✅ If parsed is something else, just return the rawText
+    return rawText.trim();
   } catch (e) {
+    // If JSON parsing fails, fallback to raw text
     return (typeof completion === 'string' ? completion : completion.text).trim();
   }
 }
