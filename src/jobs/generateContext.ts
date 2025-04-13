@@ -162,7 +162,6 @@ export async function run(payload?: jobPayload) {
 
           await updatePayloadOnly(qdrantClient, collectionName, id, {
             [targetField]: term,
-            summary: term,
             urls,
           });
 
@@ -182,7 +181,6 @@ export async function run(payload?: jobPayload) {
                 vector: embedding,
                 payload: {
                   [targetField]: term,
-                  summary: term,
                   urls,
                 },
               },
