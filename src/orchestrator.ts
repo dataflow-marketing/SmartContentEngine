@@ -4,7 +4,7 @@ import { dirname } from 'path';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-// No job interface definitions required here
+// No job interface definitions required here.
 import * as generateAggregate from './jobs/generateAggregate.js';
 import * as generateContext from './jobs/generateContext.js';
 import * as generateContentIdeas from './jobs/generateContentIdeas.js'; // our updated job
@@ -44,6 +44,7 @@ export async function runJob(jobName: string, payload?: any): Promise<any> {
     throw new Error(`Job not found: ${jobName}`);
   }
   console.log(`➡️ Running job: ${jobName}`);
+  // Return the result directly (so the API can use it as the response body)
   const result = await selectedJob.run(payload);
-  return { job: jobName, status: 'fulfilled', result };
+  return result;
 }

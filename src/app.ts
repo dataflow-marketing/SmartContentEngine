@@ -6,6 +6,7 @@ import { runJob, listJobs } from './orchestrator';
 
 const app = new Hono();
 
+// Middleware for API key authentication.
 app.use('*', async (c, next) => {
   const providedKey = c.req.header('x-api-key');
   const expectedKey = process.env.API_SECRET_KEY;
@@ -15,8 +16,10 @@ app.use('*', async (c, next) => {
   return next();
 });
 
+// Health endpoint
 app.get('/health', (c) => c.json({ status: 'ok' }));
 
+// Crawl route (PUT)
 app.put('/crawl', async (c) => {
   const body = await c.req.json();
   const { sitemap, db, slow } = body;
@@ -44,6 +47,7 @@ app.put('/crawl', async (c) => {
   });
 });
 
+// Route to list available jobs.
 app.get('/jobs', async (c) => {
   try {
     const jobs = await listJobs();
@@ -54,15 +58,15 @@ app.get('/jobs', async (c) => {
   }
 });
 
+// Route to run a job. The result from runJob is returned in the JSON response.
 app.post('/jobs/run', async (c) => {
-  const body = await c.req.json();
-  const { job, payload } = body;
-
-  if (!job) {
-    return c.json({ error: 'Job name is required in the request body' }, 400);
-  }
-
   try {
+    const body = await c.req.json();
+    const { job, payload } = body;
+    if (!job) {
+      return c.json({ error: 'Job name is required in the request body' }, 400);
+    }
+    // Await the job result and return it in the response.
     const result = await runJob(job, payload);
     return c.json({ result });
   } catch (error) {
@@ -71,4 +75,5 @@ app.post('/jobs/run', async (c) => {
   }
 });
 
+// Start the server.
 serve(app);

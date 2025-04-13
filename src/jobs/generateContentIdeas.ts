@@ -10,7 +10,7 @@ const parser = StructuredOutputParser.fromZodSchema(
       title: z.string(),
       excerpt: z.string(),
       summary: z.string(),
-      body: z.string(),             // The full content of the blog post.
+      body: z.string(), // The full content of the blog post.
       keyTakeaways: z.array(z.string()),
       wrapUp: z.string(),
       callToAction: z.string(),
@@ -43,9 +43,16 @@ function escapeBraces(str: string): string {
   return str.replace(/{/g, '{{').replace(/}/g, '}}');
 }
 
-// Build the prompt with detailed instructions.
-// We explicitly instruct the model to format strings with a single pair of double quotes
-// and not use any triple quotes.
+// Helper: Clean the raw output. This removes leading and trailing code fences if they exist.
+function cleanResult(result: string): string {
+  return result
+    .replace(/^```(?:json)?\n?/, '')
+    .replace(/```$/, '')
+    .trim();
+}
+
+// Build the prompt with explicit instructions for valid JSON output.
+// The instructions include that the model must not output triple quotes and must follow standard JSON formatting.
 function buildPrompt(params: ContentGenerationParams, context: string): string {
   const { question, tone = 'neutral', narrative = 'how-to', interest = 'general', numberOfQuestions = 3 } = params;
   const formatInstructions = escapeBraces(parser.getFormatInstructions());
@@ -76,7 +83,8 @@ Format your response strictly as JSON according to the following JSON Schema:
 ${formatInstructions}
 
 IMPORTANT: Only output the JSON array with no additional text, markdown formatting, or code fences.
-All string values must be enclosed in a single pair of double quotes. Do not use triple quotes (""" or ''') anywhere in your response.
+All string values must be enclosed in a single pair of double quotes (") with proper commas between items.
+Do not use triple quotes (""" or ''').
 `.trim();
 }
 
@@ -93,6 +101,7 @@ export async function run(payload?: ContentGenerationParams): Promise<BlogPost[]
     narrative: payload.narrative,
   };
 
+  // Loop over each specified collection to build up context.
   for (const collectionName of payload.collections) {
     const fullCollectionName = `${payload.db}-${collectionName}`;
     const searchTerm = searchTermMap[collectionName];
@@ -130,14 +139,22 @@ export async function run(payload?: ContentGenerationParams): Promise<BlogPost[]
   const chain = buildChain(prompt);
   const completion = await chain.invoke({});
   const result = await parseCompletion(completion);
-
+  const cleanedResult = cleanResult(result);
+  
   let parsedResult: BlogPost[];
   try {
-    parsedResult = await parser.parse(result);
+    // First try using our structured output parser.
+    parsedResult = await parser.parse(cleanedResult);
   } catch (error) {
     console.error('❌ Failed to parse structured output:', error);
-    console.error('📝 Raw model output:', result);
-    throw new Error('Model output could not be parsed as JSON.');
+    console.error('📝 Cleaned model output:', cleanedResult);
+    // Fallback: attempt a raw JSON parse.
+    try {
+      parsedResult = JSON.parse(cleanedResult);
+    } catch (error2) {
+      console.error('❌ Raw JSON parsing failed:', error2);
+      throw new Error('Model output could not be parsed as JSON.');
+    }
   }
 
   if (!Array.isArray(parsedResult)) {
