@@ -30,6 +30,7 @@
     "langchain": "^0.3.21",
     "mysql2": "^3.14.0",
     "sanitize-html": "^2.15.0",
-    "sitemapper": "^3.2.20"
+    "sitemapper": "^3.2.20",
+    "zod": "^3.24.2"
   }
 }
