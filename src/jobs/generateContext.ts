@@ -10,6 +10,7 @@ interface jobPayload {
   db: string;
   prompt: string;
   field: string;
+  forceRedo?: boolean; // optional parameter to force reprocessing
 }
 
 function generateId(content: string): string {
@@ -71,18 +72,22 @@ export async function run(payload?: jobPayload) {
     throw new Error('Missing required payload: { db, prompt, field }');
   }
 
-  const { db: databaseName, prompt: payloadPrompt, field: targetField } = payload;
+  const { db: databaseName, prompt: payloadPrompt, field: targetField, forceRedo = false } = payload;
+
   console.log(`📝 Starting job for database: ${databaseName} updating field: ${targetField}`);
+  if (forceRedo) console.log(`⚠️ Force reprocessing is enabled. All records will be processed.`);
 
   const pool = await getPool(databaseName);
 
   const [rowsWebsite] = await pool.query(`SELECT website_data FROM website LIMIT 1`);
   const website_data = rowsWebsite[0].website_data;
 
+  const whereClause = forceRedo ? '' : `WHERE JSON_EXTRACT(page_data, '$.${targetField}') IS NULL`;
+
   const [rowsPages] = await pool.query(`
     SELECT url, page_data
     FROM pages
-    WHERE JSON_EXTRACT(page_data, '$.${targetField}') IS NULL
+    ${whereClause}
   `) as [Array<{ url: string; page_data: any }>, any];
 
   if (rowsPages.length === 0) {
