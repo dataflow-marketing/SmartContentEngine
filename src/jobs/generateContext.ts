@@ -10,7 +10,7 @@ interface jobPayload {
   db: string;
   prompt: string;
   field: string;
-  forceRedo?: boolean; // optional parameter to force reprocessing
+  forceRedo?: boolean; 
 }
 
 function generateId(content: string): string {
