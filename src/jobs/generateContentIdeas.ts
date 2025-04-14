@@ -59,8 +59,8 @@ For each blog post, provide the following fields:
 - Title
 - Excerpt (1–2 sentences)
 - Summary (50 words or less)
-- Body (the full content of the blog post)
-- Key Takeaways (an array of 3–5 points)
+- Body (the text of the blog post)
+- Key Takeaways (an array of 3–5 points, each point whould have a a short content to support the point)
 - Wrap-up paragraph
 - Call to action for comments
 
