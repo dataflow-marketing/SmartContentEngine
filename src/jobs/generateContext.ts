@@ -88,6 +88,7 @@ export async function run(payload?: jobPayload) {
   const [rowsPages] = await pool.query(`
     SELECT url, page_data
     FROM pages
+    WHERE JSON_EXTRACT(page_data, '$.${targetField}') IS NULL
   `) as [Array<{ url: string; page_data: any }>, any];
 
   if (rowsPages.length === 0) {
