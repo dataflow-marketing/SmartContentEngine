@@ -16,9 +16,9 @@ This README covers:
 
 This is a Node.js TypeScript service that provides a REST API for:
 - [x] Crawling sitemaps and pages
-- [ ] Extracting metadata, links, images, canonical URLs, and textual content
-- [ ] Generating summaries and narratives
-- [ ] Classifying interests and segments
+- [x] Generating summaries and narratives
+- [x] Classifying interests
+- [ ] Classifying segments
 - [ ] Producing an overall report
 
 It is built to be modular, extensible and can be integrated with your internal systems or run standalone.
