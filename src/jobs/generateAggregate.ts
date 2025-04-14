@@ -1,24 +1,15 @@
 import { getPool } from '../db';
 import { Ollama } from '@langchain/ollama';
 import { PromptTemplate } from '@langchain/core/prompts';
-import { QdrantVectorStore } from '@langchain/qdrant';
-import { Embeddings } from 'langchain/embeddings/base';
+import { QdrantClient } from '@qdrant/js-client-rest';
 import { getEmbedding } from '../utilities/embeddings';
 import { parseCompletion } from '../utilities/chain';
 
 interface jobPayload {
   db: string;
-  prompt: string; 
-  field: string; 
-}
-
-class CustomEmbeddings implements Embeddings {
-  async embedQuery(_text: string): Promise<number[]> {
-    return Array(768).fill(0);
-  }
-  async embedDocuments(documents: string[]): Promise<number[][]> {
-    return documents.map(() => Array(768).fill(0));
-  }
+  prompt: string;
+  aggregationItem: string;
+  searchTerm?: string;
 }
 
 async function updateWebsiteDataField(pool: any, targetField: string, value: string): Promise<void> {
@@ -34,38 +25,47 @@ async function updateWebsiteDataField(pool: any, targetField: string, value: str
 }
 
 export async function run(payload?: jobPayload) {
-  if (!payload || !payload.db || !payload.prompt || !payload.field) {
-    throw new Error('Missing required payload: { db, prompt, field }');
+  if (!payload || !payload.db || !payload.prompt || !payload.aggregationItem) {
+    throw new Error('Missing required payload: { db, prompt, aggregationItem }');
   }
 
-  const { db: databaseName, prompt: payloadPrompt, field: targetField } = payload;
-  console.log(`📝 Starting overall generation for database: ${databaseName}, targeting website_data.${targetField}`);
+  const { db: databaseName, prompt: payloadPrompt, aggregationItem, searchTerm } = payload;
+
+  console.log(`📝 Starting aggregate generation for database: ${databaseName}, targeting website_data.${aggregationItem}`);
 
   const pool = await getPool(databaseName);
-  const collectionName = `${databaseName}-${targetField}`;
+  const collectionName = `${databaseName}-${aggregationItem}`;
 
-  const searchEmbedding = await getEmbedding('aggregate');
+  const termForEmbedding = searchTerm || aggregationItem;
+  const searchEmbedding = await getEmbedding(termForEmbedding);
+  console.log(`🔍 Using embedding for search term: "${termForEmbedding}"`);
 
-  const vectorStore = await QdrantVectorStore.fromExistingCollection(
-    new CustomEmbeddings(),
-    {
-      url: process.env.QDRANT_URL || 'http://localhost:6333',
-      collectionName,
-    }
-  );
+  const qdrantClient = new QdrantClient({
+    url: process.env.QDRANT_URL || 'http://localhost:6333',
+  });
 
-  const results = await vectorStore.similaritySearchVectorWithScore(searchEmbedding, 20);
+  // Query the vector collection
+  const searchResult = await qdrantClient.search(collectionName, {
+    vector: searchEmbedding,
+    limit: 5,
+    with_payload: true,
+  });
 
-  if (!results || results.length === 0) {
+  if (!searchResult || searchResult.length === 0) {
     console.log(`✅ No relevant vectors found in Qdrant collection: ${collectionName}`);
     await pool.end();
     return;
   }
 
-  console.log(`Found ${results.length} relevant entries from Qdrant.`);
+  console.log(`Found ${searchResult.length} relevant entries from Qdrant.`);
 
-  const combinedContent = results
-    .map(([doc]) => doc.pageContent.trim())
+  searchResult.forEach((result, index) => {
+    console.log(`Result ${index + 1} full doc:`, JSON.stringify(result, null, 2));
+  });
+
+  // Safely combine payload contents
+  const combinedContent = searchResult
+    .map((result) => result.payload?.[aggregationItem]?.trim() || '')
     .filter(text => text.length > 0)
     .join('\n');
 
@@ -76,19 +76,19 @@ export async function run(payload?: jobPayload) {
   }
 
   let finalPrompt = payloadPrompt;
-  const dynamicPlaceholder = `{${targetField}}`;
+  const dynamicPlaceholder = `{${aggregationItem}}`;
 
   if (finalPrompt.includes(dynamicPlaceholder)) {
-    finalPrompt = finalPrompt.split(dynamicPlaceholder).join(combinedContent); 
+    finalPrompt = finalPrompt.replace(new RegExp(dynamicPlaceholder, 'g'), combinedContent);
   } else {
-    console.warn(`⚠️ No placeholder matching your field (${dynamicPlaceholder}) found in the prompt template.`);
+    console.warn(`⚠️ No placeholder matching your aggregationItem (${dynamicPlaceholder}) found in the prompt template.`);
   }
-
+console.log (finalPrompt);
   const promptTemplate = PromptTemplate.fromTemplate(finalPrompt);
 
   const llm = new Ollama({
     baseUrl: process.env.OLLAMA_API_URL || 'http://localhost:11434',
-    model: process.env.OLLAMA_MODEL || 'llama3',
+    model: process.env.OLLAMA_MODEL || 'llama3.2',
     temperature: 0.3,
     maxRetries: 3,
   });
@@ -103,7 +103,7 @@ export async function run(payload?: jobPayload) {
     return;
   }
 
-  await updateWebsiteDataField(pool, targetField, overallResult);
+  await updateWebsiteDataField(pool, aggregationItem, overallResult);
 
   await pool.end();
   console.log(`✅ Job completed for database: ${databaseName}`);
