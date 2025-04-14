@@ -1,12 +1,5 @@
-// src/utilities/embeddings.ts
-
-// If using Node.js 18+, fetch is built in.
-// Otherwise, uncomment the following lines for node-fetch:
-// import fetch from 'node-fetch';
-
 export async function getEmbedding(text: string): Promise<number[]> {
     const model = process.env.OLLAMA_EMBEDDING_MODEL || 'llama3.2';
-    // Use the endpoint for nomic embed-text as documented.
     const endpoint = process.env.NOMIC_EMBED_ENDPOINT || 'http://localhost:11434/api/embeddings';
   
     try {

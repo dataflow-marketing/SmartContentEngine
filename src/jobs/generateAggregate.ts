@@ -14,7 +14,7 @@ interface jobPayload {
 
 class CustomEmbeddings implements Embeddings {
   async embedQuery(_text: string): Promise<number[]> {
-    return Array(768).fill(0); // Matching your embedding dimension
+    return Array(768).fill(0);
   }
   async embedDocuments(documents: string[]): Promise<number[][]> {
     return documents.map(() => Array(768).fill(0));
@@ -44,7 +44,6 @@ export async function run(payload?: jobPayload) {
   const pool = await getPool(databaseName);
   const collectionName = `${databaseName}-${targetField}`;
 
-  // Generate embedding for the search query
   const searchEmbedding = await getEmbedding('aggregate');
 
   const vectorStore = await QdrantVectorStore.fromExistingCollection(
@@ -76,12 +75,11 @@ export async function run(payload?: jobPayload) {
     return;
   }
 
-  // Prepare the final prompt by replacing the dynamic placeholder
   let finalPrompt = payloadPrompt;
   const dynamicPlaceholder = `{${targetField}}`;
 
   if (finalPrompt.includes(dynamicPlaceholder)) {
-    finalPrompt = finalPrompt.split(dynamicPlaceholder).join(combinedContent); // safer than replace() in case multiple
+    finalPrompt = finalPrompt.split(dynamicPlaceholder).join(combinedContent); 
   } else {
     console.warn(`⚠️ No placeholder matching your field (${dynamicPlaceholder}) found in the prompt template.`);
   }

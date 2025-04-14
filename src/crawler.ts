@@ -71,8 +71,6 @@ export async function startCrawl(options: CrawlOptions = {}): Promise<void> {
     }
   }
 
-  // Pre-update the website_data JSON with the sitemap URL.
-  // This ensures that even if the crawl fails, the sitemap URL is recorded.
   try {
     await pool.query(
       `UPDATE website

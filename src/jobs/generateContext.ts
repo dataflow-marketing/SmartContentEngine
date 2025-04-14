@@ -12,7 +12,6 @@ interface jobPayload {
   field: string;
 }
 
-// ✅ Generate deterministic UUID from term
 function generateId(content: string): string {
   const hash = crypto.createHash('sha1').update(content).digest('hex');
   return [
@@ -24,13 +23,11 @@ function generateId(content: string): string {
   ].join('-');
 }
 
-// ✅ Ensure existing URLs are always an array
 function ensureArray(input: string[] | string | undefined): string[] {
   if (!input) return [];
   return Array.isArray(input) ? input : [input];
 }
 
-// ✅ Get existing point from Qdrant by vector ID (CORRECTED)
 async function getExistingPoint(client: QdrantClient, collectionName: string, id: string) {
   const response = await client.retrieve(collectionName, {
     ids: [id],
@@ -41,7 +38,6 @@ async function getExistingPoint(client: QdrantClient, collectionName: string, id
   return response?.length > 0 ? response[0] : null;
 }
 
-// ✅ Update payload only
 async function updatePayloadOnly(client: QdrantClient, collectionName: string, id: string, payload: Record<string, any>) {
   await client.setPayload(collectionName, {
     points: [id],
@@ -49,7 +45,6 @@ async function updatePayloadOnly(client: QdrantClient, collectionName: string, i
   });
 }
 
-// ✅ Ensure collection exists (no errors, safe)
 async function ensureCollectionExists(client: QdrantClient, collectionName: string, dimension: number) {
   try {
     await client.getCollection(collectionName);
@@ -71,7 +66,6 @@ async function ensureCollectionExists(client: QdrantClient, collectionName: stri
   }
 }
 
-// ✅ Main run function
 export async function run(payload?: jobPayload) {
   if (!payload || !payload.db || !payload.prompt || !payload.field) {
     throw new Error('Missing required payload: { db, prompt, field }');
@@ -113,7 +107,6 @@ export async function run(payload?: jobPayload) {
     url: process.env.QDRANT_URL || 'http://localhost:6333',
   });
 
-  // ✅ Ensure collection exists before proceeding
   await ensureCollectionExists(qdrantClient, collectionName, embeddingDimension);
 
   for (const row of rowsPages) {

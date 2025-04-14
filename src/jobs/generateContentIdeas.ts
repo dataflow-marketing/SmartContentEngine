@@ -3,14 +3,13 @@ import { searchVectorStore, collectionExists } from '../utilities/search.js';
 import { StructuredOutputParser } from 'langchain/output_parsers';
 import { z } from 'zod';
 
-// Define the expected output schema using Zod.
 const parser = StructuredOutputParser.fromZodSchema(
   z.array(
     z.object({
       title: z.string(),
       excerpt: z.string(),
       summary: z.string(),
-      body: z.string(), // The full content of the blog post.
+      body: z.string(),
       keyTakeaways: z.array(z.string()),
       wrapUp: z.string(),
       callToAction: z.string(),
@@ -25,7 +24,7 @@ export interface ContentGenerationParams {
   interest?: string;
   numberOfQuestions?: number;
   db: string;
-  collections: string[]; // e.g. ["interests", "tone", "narrative"]
+  collections: string[];
 }
 
 export interface BlogPost {
@@ -38,12 +37,10 @@ export interface BlogPost {
   callToAction: string;
 }
 
-// Helper: Escape curly braces so that LangChain treats them as literal text.
 function escapeBraces(str: string): string {
   return str.replace(/{/g, '{{').replace(/}/g, '}}');
 }
 
-// Helper: Clean the raw output. This removes leading and trailing code fences if they exist.
 function cleanResult(result: string): string {
   return result
     .replace(/^```(?:json)?\n?/, '')
@@ -51,8 +48,6 @@ function cleanResult(result: string): string {
     .trim();
 }
 
-// Build the prompt with explicit instructions for valid JSON output.
-// The instructions include that the model must not output triple quotes and must follow standard JSON formatting.
 function buildPrompt(params: ContentGenerationParams, context: string): string {
   const { question, tone = 'neutral', narrative = 'how-to', interest = 'general', numberOfQuestions = 3 } = params;
   const formatInstructions = escapeBraces(parser.getFormatInstructions());
@@ -101,7 +96,6 @@ export async function run(payload?: ContentGenerationParams): Promise<BlogPost[]
     narrative: payload.narrative,
   };
 
-  // Loop over each specified collection to build up context.
   for (const collectionName of payload.collections) {
     const fullCollectionName = `${payload.db}-${collectionName}`;
     const searchTerm = searchTermMap[collectionName];
@@ -143,12 +137,10 @@ export async function run(payload?: ContentGenerationParams): Promise<BlogPost[]
   
   let parsedResult: BlogPost[];
   try {
-    // First try using our structured output parser.
     parsedResult = await parser.parse(cleanedResult);
   } catch (error) {
     console.error('❌ Failed to parse structured output:', error);
     console.error('📝 Cleaned model output:', cleanedResult);
-    // Fallback: attempt a raw JSON parse.
     try {
       parsedResult = JSON.parse(cleanedResult);
     } catch (error2) {
