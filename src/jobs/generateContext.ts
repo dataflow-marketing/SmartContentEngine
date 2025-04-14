@@ -29,13 +29,33 @@ function ensureArray(input: string[] | string | undefined): string[] {
   return Array.isArray(input) ? input : [input];
 }
 
+function forceTermsToArray(input: any): string[] {
+  if (Array.isArray(input)) {
+    return input;
+  }
+  if (typeof input === 'string') {
+    const trimmed = input.trim();
+    if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (Array.isArray(parsed)) {
+          return parsed;
+        }
+      } catch (error) {
+        console.error('Error parsing JSON array from string:', error);
+      }
+    }
+    return [input];
+  }
+  return [];
+}
+
 async function getExistingPoint(client: QdrantClient, collectionName: string, id: string) {
   const response = await client.retrieve(collectionName, {
     ids: [id],
     with_payload: true,
     with_vector: false,
   });
-
   return response?.length > 0 ? response[0] : null;
 }
 
@@ -145,7 +165,7 @@ export async function run(payload?: jobPayload) {
       await updatePageDataField(pool, url, targetField, processedResult);
       console.log(`✅ Updated ${targetField} for ${url}`);
 
-      const terms = Array.isArray(processedResult) ? processedResult : [processedResult];
+      const terms = forceTermsToArray(processedResult);
 
       for (const term of terms) {
         const id = generateId(term);
