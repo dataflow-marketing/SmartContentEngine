@@ -1,57 +1,73 @@
 import { QdrantClient } from '@qdrant/js-client-rest';
+import { getEmbedding } from './embeddings.js';
 
-const qdrantUrl = process.env.QDRANT_URL || 'http://localhost:6333';
+const qdrantUrlRaw = process.env.QDRANT_URL;
+if (!qdrantUrlRaw) throw new Error('Missing QDRANT_URL');
+const qurl = new URL(qdrantUrlRaw.replace(/\/+\$/, ''));
+qurl.username = process.env.QDRANT_USER || '';
+qurl.password = process.env.QDRANT_PASSWORD || '';
 
-export async function collectionExists(collectionName: string): Promise<boolean> {
-  const client = new QdrantClient({ url: qdrantUrl });
+const client = new QdrantClient({
+  url: qurl.toString(),
+  checkCompatibility: false,
+});
 
+export async function collectionExists(name: string): Promise<boolean> {
   try {
-    const collectionInfo = await client.getCollection(collectionName);
-    return !!collectionInfo;
-  } catch (error: any) {
-    if (error?.response?.status === 404 || error?.data?.status?.error?.includes('doesn\'t exist')) {
-      return false;
-    }
-    throw error;
+    await client.getCollection(name);
+    return true;
+  } catch (e: any) {
+    if (e?.response?.status === 404 || e?.status === 404) return false;
+    throw e;
   }
 }
 
-export async function searchVectorStore(term: string, collectionName: string): Promise<string> {
-  if (!term.trim()) {
-    console.warn(`⚠️ No search term provided for collection: ${collectionName}`);
-    return '';
+export async function fetchVectorPayloads(
+  term: string,
+  collectionName: string,
+  limit = 10
+): Promise<any[]> {
+  const cleaned = term.trim();
+  if (!cleaned) {
+    console.warn(`⚠️ No search term for collection ${collectionName}`);
+    return [];
   }
 
-  const client = new QdrantClient({ url: qdrantUrl });
+  const vector = await getEmbedding(cleaned);
+  if (!vector?.length) {
+    console.warn(`⚠️ Embedding failed for "${term}"`);
+    return [];
+  }
 
   try {
-    const searchResult = await client.search(collectionName, {
-      vector: Array(768).fill(0), // Dummy vector
-      filter: {
-        must: [
-          {
-            key: 'summary',
-            match: {
-              value: term,
-            },
-          },
-        ],
-      },
-      limit: 5,
+    const results = await client.search(collectionName, {
+      vector,
+      limit,
+      with_payload: true,
     });
-
-    if (!searchResult.length) {
-      console.warn(`⚠️ No vector search results for term: "${term}" in collection: ${collectionName}`);
-      return '';
-    }
-
-    const texts = searchResult
-      .map(item => item.payload?.summary || item.payload?.interests || '')
-      .filter(Boolean);
-
-    return texts.join('\n');
-  } catch (error: any) {
-    console.warn(`⚠️ Vector search failed for collection: ${collectionName}`, error.message);
-    return '';
+    return results.map(hit => hit.payload).filter(Boolean);
+  } catch (e: any) {
+    console.warn(`⚠️ Qdrant search error for ${collectionName}:`, e.message);
+    return [];
   }
+}
+
+export async function searchVectorStore(
+  term: string,
+  collectionName: string,
+  limit = 5
+): Promise<string> {
+  const results = await fetchVectorPayloads(term, collectionName, limit);
+
+  if (!results.length) {
+    return `No relevant data found for "${term}" in "${collectionName}".`;
+  }
+
+  const lines: string[] = results.map((item, i) => {
+    const summary = item.summary || item.text || item.content || '';
+    const source = item.url || item.source || '';
+    return `#${i + 1}: ${summary}${source ? `\n(Source: ${source})` : ''}`;
+  });
+
+  return `Results from collection "${collectionName}" for term "${term}":\n\n` + lines.join('\n\n');
 }

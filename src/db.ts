@@ -58,7 +58,7 @@ export async function initDb(pool: mysql.Pool): Promise<void> {
       UNIQUE KEY uniq_page_url (url(768))
     )
   `);
-  
+
   await pool.query(`
     CREATE TABLE IF NOT EXISTS website (
       id INT AUTO_INCREMENT PRIMARY KEY,
@@ -155,4 +155,32 @@ export async function updateWebsiteDataField(
     `,
     [JSON.stringify(value)]
   );
+}
+
+export async function getPageTextByUrl(dbName: string, url: string): Promise<string | null> {
+  const pool = await getPool(dbName);
+  const [rows] = await pool.query(
+    `SELECT page_data->>'$.text' AS text FROM pages WHERE url = ? LIMIT 1`,
+    [url]
+  ) as [Array<{ text: string | null }>, any];
+
+  if (rows.length && rows[0].text) {
+    return rows[0].text;
+  }
+
+  return null;
+}
+
+export async function getPageSummaryByUrl(dbName: string, url: string): Promise<string | null> {
+  const pool = await getPool(dbName);
+  const [rows] = await pool.query(
+    `SELECT page_data->>'$.summary' AS summary FROM pages WHERE url = ? LIMIT 1`,
+    [url]
+  ) as [Array<{ summary: string | null }>, any];
+
+  if (rows.length && rows[0].summary) {
+    return rows[0].summary;
+  }
+
+  return null;
 }

@@ -1,8 +1,8 @@
 import { Ollama } from '@langchain/ollama';
-import { LLMChain } from 'langchain/chains';
 import { PromptTemplate } from '@langchain/core/prompts';
+import { RunnableSequence } from '@langchain/core/runnables';
 
-export function buildChain(prompt: string) {
+export function buildChain(outputParser: any) {
   const model = new Ollama({
     baseUrl: process.env.OLLAMA_API_URL || 'http://localhost:11434',
     model: process.env.OLLAMA_MODEL || 'llama3',
@@ -10,15 +10,13 @@ export function buildChain(prompt: string) {
     maxRetries: 3,
   });
 
-  const template = new PromptTemplate({
-    template: prompt,
-    inputVariables: [], // ✅ No variables to parse
-  });
+  const prompt = PromptTemplate.fromTemplate('{input}');
 
-  return new LLMChain({
-    llm: model,
-    prompt: template,
-  });
+  return RunnableSequence.from([
+    prompt,
+    model,
+    outputParser
+  ]);
 }
 
 export async function parseCompletion(completion: any): Promise<string> {

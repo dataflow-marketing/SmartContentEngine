@@ -17,6 +17,7 @@
   "dependencies": {
     "@crawlee/memory-storage": "^3.13.1",
     "@hono/node-server": "^1.14.0",
+    "@langchain/core": "^0.3.56",
     "@langchain/ollama": "^0.2.0",
     "@langchain/qdrant": "^0.1.2",
     "@qdrant/js-client-rest": "^1.13.0",

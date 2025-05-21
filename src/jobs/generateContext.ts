@@ -1,16 +1,15 @@
 import { getPool, updatePageDataField } from '../db';
 import { Ollama } from '@langchain/ollama';
-import { buildChain, parseCompletion } from '../utilities/chain';
-import { preparePrompt } from '../utilities/prompt';
 import { getEmbedding } from '../utilities/embeddings';
 import { QdrantClient } from '@qdrant/js-client-rest';
+import { preparePrompt } from '../utilities/prompt';
 import crypto from 'crypto';
 
 interface jobPayload {
   db: string;
   prompt: string;
   field: string;
-  forceRedo?: boolean; 
+  forceRedo?: boolean;
 }
 
 function generateId(content: string): string {
@@ -27,27 +26,6 @@ function generateId(content: string): string {
 function ensureArray(input: string[] | string | undefined): string[] {
   if (!input) return [];
   return Array.isArray(input) ? input : [input];
-}
-
-function forceTermsToArray(input: any): string[] {
-  if (Array.isArray(input)) {
-    return input;
-  }
-  if (typeof input === 'string') {
-    const trimmed = input.trim();
-    if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
-      try {
-        const parsed = JSON.parse(trimmed);
-        if (Array.isArray(parsed)) {
-          return parsed;
-        }
-      } catch (error) {
-        console.error('Error parsing JSON array from string:', error);
-      }
-    }
-    return [input];
-  }
-  return [];
 }
 
 async function getExistingPoint(client: QdrantClient, collectionName: string, id: string) {
@@ -72,18 +50,33 @@ async function ensureCollectionExists(client: QdrantClient, collectionName: stri
     console.log(`📦 Qdrant collection '${collectionName}' already exists.`);
   } catch (error: any) {
     if (error.status === 404 || error.response?.status === 404) {
-      console.log(`📦 Collection '${collectionName}' does not exist. Creating...`);
+      console.log(`📦 Creating collection '${collectionName}'...`);
       await client.createCollection(collectionName, {
         vectors: {
           size: dimension,
           distance: 'Cosine',
         },
       });
-      console.log(`✅ Collection '${collectionName}' created.`);
     } else {
-      console.error(`❌ Error checking/creating collection:`, error);
+      console.error(`❌ Collection check error:`, error);
       throw error;
     }
+  }
+}
+
+async function parseCompletion(output: string): Promise<any[] | null> {
+  try {
+    const start = output.indexOf('[');
+    const end = output.lastIndexOf(']');
+    if (start === -1 || end === -1 || end <= start) {
+      throw new Error('No JSON array found in output');
+    }
+    const json = output.slice(start, end + 1);
+    const parsed = JSON.parse(json);
+    return Array.isArray(parsed) ? parsed : null;
+  } catch (err) {
+    console.error('❌ Failed to parse completion as JSON:', err);
+    return null;
   }
 }
 
@@ -94,11 +87,10 @@ export async function run(payload?: jobPayload) {
 
   const { db: databaseName, prompt: payloadPrompt, field: targetField, forceRedo = false } = payload;
 
-  console.log(`📝 Starting job for database: ${databaseName} updating field: ${targetField}`);
-  if (forceRedo) console.log(`⚠️ Force reprocessing is enabled. All records will be processed.`);
+  console.log(`📝 Starting job for DB: ${databaseName}, Field: ${targetField}`);
+  if (forceRedo) console.log(`⚠️ Force reprocessing enabled`);
 
   const pool = await getPool(databaseName);
-
   const [rowsWebsite] = await pool.query(`SELECT website_data FROM website LIMIT 1`);
   const website_data = rowsWebsite[0].website_data;
 
@@ -111,12 +103,12 @@ export async function run(payload?: jobPayload) {
   `) as [Array<{ url: string; page_data: any }>, any];
 
   if (rowsPages.length === 0) {
-    console.log(`✅ No pages to process in database: ${databaseName}`);
+    console.log(`✅ No pages to process.`);
     await pool.end();
     return;
   }
 
-  console.log(`Found ${rowsPages.length} pages to process.`);
+  console.log(`📄 Pages to process: ${rowsPages.length}`);
 
   const llm = new Ollama({
     baseUrl: process.env.OLLAMA_API_URL || 'http://localhost:11434',
@@ -125,20 +117,18 @@ export async function run(payload?: jobPayload) {
     maxRetries: 3,
   });
 
-  const collectionName = `${databaseName}-${targetField}`;
-  const embeddingDimension = 768;
-
   const qdrantClient = new QdrantClient({
     url: process.env.QDRANT_URL || 'http://localhost:6333',
   });
 
+  const collectionName = `${databaseName}-${targetField}`;
+  const embeddingDimension = 768;
   await ensureCollectionExists(qdrantClient, collectionName, embeddingDimension);
 
   for (const row of rowsPages) {
     const { url, page_data } = row;
-
     if (!page_data?.text) {
-      console.warn(`⚠️ Skipping ${url} — no page_data.text found.`);
+      console.warn(`⚠️ Skipping ${url} — no page_data.text`);
       continue;
     }
 
@@ -147,49 +137,44 @@ export async function run(payload?: jobPayload) {
     try {
       const promptData = { page: page_data, website: website_data };
       const finalPrompt = preparePrompt(payloadPrompt, promptData);
-      const chain = buildChain(finalPrompt);
-      const completion = await chain.invoke({});
 
-      if (!completion) {
-        console.warn(`⚠️ No output generated for ${url}. Skipping update.`);
-        continue;
-      }
+      const completion = await llm.invoke(finalPrompt);
 
       const processedResult = await parseCompletion(completion);
-
-      if (!processedResult) {
-        console.warn(`⚠️ Processed result empty for ${url}. Skipping update.`);
+      if (!processedResult || !Array.isArray(processedResult)) {
+        console.warn(`⚠️ Empty or malformed result for ${url}`);
         continue;
       }
 
       await updatePageDataField(pool, url, targetField, processedResult);
-      console.log(`✅ Updated ${targetField} for ${url}`);
+      console.log(`✅ Saved ${targetField} for ${url}`);
 
-      const terms = forceTermsToArray(processedResult);
+      for (const item of processedResult) {
+        const interest = item.interest || item.term;
+        const text = item.text || item.content || '';
 
-      for (const term of terms) {
-        const id = generateId(term);
+        if (!interest || !text || text.length < 20) {
+          console.warn(`⚠️ Skipping weak or empty content for interest "${interest}"`);
+          continue;
+        }
 
+        const id = generateId(interest);
         const existingPoint = await getExistingPoint(qdrantClient, collectionName, id);
-
         let urls: string[] = [url];
 
         if (existingPoint) {
-          console.log(`ℹ️ Term "${term}" already exists, merging URLs.`);
           const existingUrls = ensureArray(existingPoint.payload?.urls);
           urls = Array.from(new Set([...existingUrls, url]));
-
           await updatePayloadOnly(qdrantClient, collectionName, id, {
-            [targetField]: term,
+            [targetField]: interest,
+            text,
             urls,
           });
-
-          console.log(`✅ Updated payload for term: "${term}" with URLs count: ${urls.length}`);
+          console.log(`🔄 Updated vector for "${interest}" with ${urls.length} URLs`);
         } else {
-          const embedding = await getEmbedding(term);
-
+          const embedding = await getEmbedding(text);
           if (!embedding || embedding.length === 0) {
-            console.warn(`⚠️ Embedding generation failed for term "${term}". Skipping.`);
+            console.warn(`⚠️ Embedding failed for "${interest}"`);
             continue;
           }
 
@@ -199,14 +184,15 @@ export async function run(payload?: jobPayload) {
                 id,
                 vector: embedding,
                 payload: {
-                  [targetField]: term,
+                  [targetField]: interest,
+                  text,
                   urls,
                 },
               },
             ],
           });
 
-          console.log(`✅ Inserted new vector for term: "${term}"`);
+          console.log(`✅ Inserted new vector for "${interest}"`);
         }
       }
 
@@ -215,6 +201,6 @@ export async function run(payload?: jobPayload) {
     }
   }
 
-  console.log(`✅ Job completed for database: ${databaseName}`);
+  console.log(`✅ Job completed.`);
   await pool.end();
 }
