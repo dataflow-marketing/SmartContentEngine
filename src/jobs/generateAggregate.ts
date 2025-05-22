@@ -44,7 +44,6 @@ export async function run(payload?: jobPayload) {
     url: process.env.QDRANT_URL || 'http://localhost:6333',
   });
 
-  // Query the vector collection
   const searchResult = await qdrantClient.search(collectionName, {
     vector: searchEmbedding,
     limit: 5,
@@ -63,7 +62,6 @@ export async function run(payload?: jobPayload) {
     console.log(`Result ${index + 1} full doc:`, JSON.stringify(result, null, 2));
   });
 
-  // Safely combine payload contents
   const combinedContent = searchResult
     .map((result) => result.payload?.[aggregationItem]?.trim() || '')
     .filter(text => text.length > 0)
