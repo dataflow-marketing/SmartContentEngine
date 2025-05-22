@@ -3,7 +3,7 @@ import { getEmbedding } from './embeddings.js';
 
 const qdrantUrlRaw = process.env.QDRANT_URL;
 if (!qdrantUrlRaw) throw new Error('Missing QDRANT_URL');
-const qurl = new URL(qdrantUrlRaw.replace(/\/+\$/, ''));
+const qurl = new URL(qdrantUrlRaw.replace(/\/+$/, ''));
 qurl.username = process.env.QDRANT_USER || '';
 qurl.password = process.env.QDRANT_PASSWORD || '';
 
@@ -63,11 +63,25 @@ export async function searchVectorStore(
     return `No relevant data found for "${term}" in "${collectionName}".`;
   }
 
-  const lines: string[] = results.map((item, i) => {
-    const summary = item.summary || item.text || item.content || '';
-    const source = item.url || item.source || '';
-    return `#${i + 1}: ${summary}${source ? `\n(Source: ${source})` : ''}`;
-  });
+  const lines: string[] = [];
+  for (const payload of results) {
+    if (Array.isArray(payload.data)) {
+      for (const entry of payload.data) {
+        const text = entry.text?.trim() || '';
+        const source = entry.url || '';
+        if (text) {
+          lines.push(`${text}${source ? `\n(Source: ${source})` : ''}`);
+        }
+      }
+    } else {
+      const summary = payload.summary || payload.text || payload.content || '';
+      const source = payload.url || payload.source || '';
+      if (summary) {
+        lines.push(`${summary}${source ? `\n(Source: ${source})` : ''}`);
+      }
+    }
+  }
 
-  return `Results from collection "${collectionName}" for term "${term}":\n\n` + lines.join('\n\n');
+  const numbered = lines.map((line, i) => `#${i + 1}: ${line}`);
+  return `Results from collection "${collectionName}" for term "${term}":\n\n` + numbered.join('\n\n');
 }
