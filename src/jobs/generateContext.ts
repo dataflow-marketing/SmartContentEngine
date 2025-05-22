@@ -23,12 +23,11 @@ function generateId(content: string): string {
   ].join('-');
 }
 
-function ensureArray(input: string[] | string | undefined): string[] {
-  if (!input) return [];
-  return Array.isArray(input) ? input : [input];
-}
-
-async function getExistingPoint(client: QdrantClient, collectionName: string, id: string) {
+async function getExistingPoint(
+  client: QdrantClient,
+  collectionName: string,
+  id: string
+) {
   const response = await client.retrieve(collectionName, {
     ids: [id],
     with_payload: true,
@@ -37,14 +36,23 @@ async function getExistingPoint(client: QdrantClient, collectionName: string, id
   return response?.length > 0 ? response[0] : null;
 }
 
-async function updatePayloadOnly(client: QdrantClient, collectionName: string, id: string, payload: Record<string, any>) {
+async function updatePayloadOnly(
+  client: QdrantClient,
+  collectionName: string,
+  id: string,
+  payload: Record<string, any>
+) {
   await client.setPayload(collectionName, {
     points: [id],
     payload,
   });
 }
 
-async function ensureCollectionExists(client: QdrantClient, collectionName: string, dimension: number) {
+async function ensureCollectionExists(
+  client: QdrantClient,
+  collectionName: string,
+  dimension: number
+) {
   try {
     await client.getCollection(collectionName);
     console.log(`📦 Qdrant collection '${collectionName}' already exists.`);
@@ -52,10 +60,7 @@ async function ensureCollectionExists(client: QdrantClient, collectionName: stri
     if (error.status === 404 || error.response?.status === 404) {
       console.log(`📦 Creating collection '${collectionName}'...`);
       await client.createCollection(collectionName, {
-        vectors: {
-          size: dimension,
-          distance: 'Cosine',
-        },
+        vectors: { size: dimension, distance: 'Cosine' },
       });
     } else {
       console.error(`❌ Collection check error:`, error);
@@ -85,7 +90,12 @@ export async function run(payload?: jobPayload) {
     throw new Error('Missing required payload: { db, prompt, field }');
   }
 
-  const { db: databaseName, prompt: payloadPrompt, field: targetField, forceRedo = false } = payload;
+  const {
+    db: databaseName,
+    prompt: payloadPrompt,
+    field: targetField,
+    forceRedo = false,
+  } = payload;
 
   console.log(`📝 Starting job for DB: ${databaseName}, Field: ${targetField}`);
   if (forceRedo) console.log(`⚠️ Force reprocessing enabled`);
@@ -94,13 +104,17 @@ export async function run(payload?: jobPayload) {
   const [rowsWebsite] = await pool.query(`SELECT website_data FROM website LIMIT 1`);
   const website_data = rowsWebsite[0].website_data;
 
-  const whereClause = forceRedo ? '' : `WHERE JSON_EXTRACT(page_data, '$.${targetField}') IS NULL`;
+  const whereClause = forceRedo
+    ? ''
+    : `WHERE JSON_EXTRACT(page_data, '$.${targetField}') IS NULL`;
 
-  const [rowsPages] = await pool.query(`
+  const [rowsPages] = (await pool.query(
+    `
     SELECT url, page_data
     FROM pages
     ${whereClause}
-  `) as [Array<{ url: string; page_data: any }>, any];
+  `
+  )) as [Array<{ url: string; page_data: any }>, any];
 
   if (rowsPages.length === 0) {
     console.log(`✅ No pages to process.`);
@@ -126,33 +140,34 @@ export async function run(payload?: jobPayload) {
   await ensureCollectionExists(qdrantClient, collectionName, embeddingDimension);
 
   for (const row of rowsPages) {
-    const { url, page_data } = row;
-    if (!page_data?.text) {
-      console.warn(`⚠️ Skipping ${url} — no page_data.text`);
+    const pageUrl = row.url;
+    const pageData = row.page_data;
+    if (!pageData?.text) {
+      console.warn(`⚠️ Skipping ${pageUrl} — no page_data.text`);
       continue;
     }
 
-    console.log(`🚀 Processing ${url}`);
+    console.log(`🚀 Processing ${pageUrl}`);
 
     try {
-      const promptData = { page: page_data, website: website_data };
+      const promptData = { page: pageData, website: website_data };
       const finalPrompt = preparePrompt(payloadPrompt, promptData);
 
       const completion = await llm.invoke(finalPrompt);
-
       const processedResult = await parseCompletion(completion);
-      if (!processedResult || !Array.isArray(processedResult)) {
-        console.warn(`⚠️ Empty or malformed result for ${url}`);
+      if (!processedResult) {
+        console.warn(`⚠️ Empty or malformed result for ${pageUrl}`);
         continue;
       }
 
-      await updatePageDataField(pool, url, targetField, processedResult);
-      console.log(`✅ Saved ${targetField} for ${url}`);
+      // Persist to your DB as before
+      await updatePageDataField(pool, pageUrl, targetField, processedResult);
+      console.log(`✅ Saved ${targetField} for ${pageUrl}`);
 
+      // Now upsert into Qdrant using the new `data` array
       for (const item of processedResult) {
         const interest = item.interest || item.term;
         const text = item.text || item.content || '';
-
         if (!interest || !text || text.length < 20) {
           console.warn(`⚠️ Skipping weak or empty content for interest "${interest}"`);
           continue;
@@ -160,17 +175,18 @@ export async function run(payload?: jobPayload) {
 
         const id = generateId(interest);
         const existingPoint = await getExistingPoint(qdrantClient, collectionName, id);
-        let urls: string[] = [url];
 
         if (existingPoint) {
-          const existingUrls = ensureArray(existingPoint.payload?.urls);
-          urls = Array.from(new Set([...existingUrls, url]));
+          const existingData = Array.isArray(existingPoint.payload?.data)
+            ? existingPoint.payload.data
+            : [];
+          const updatedData = [...existingData, { text, url: pageUrl }];
+
           await updatePayloadOnly(qdrantClient, collectionName, id, {
             [targetField]: interest,
-            text,
-            urls,
+            data: updatedData,
           });
-          console.log(`🔄 Updated vector for "${interest}" with ${urls.length} URLs`);
+          console.log(`🔄 Merged ${updatedData.length} snippets for "${interest}"`);
         } else {
           const embedding = await getEmbedding(text);
           if (!embedding || embedding.length === 0) {
@@ -185,19 +201,16 @@ export async function run(payload?: jobPayload) {
                 vector: embedding,
                 payload: {
                   [targetField]: interest,
-                  text,
-                  urls,
+                  data: [{ text, url: pageUrl }],
                 },
               },
             ],
           });
-
-          console.log(`✅ Inserted new vector for "${interest}"`);
+          console.log(`✅ Inserted "${interest}" with 1 snippet`);
         }
       }
-
     } catch (error) {
-      console.error(`❌ Error processing ${url}:`, error);
+      console.error(`❌ Error processing ${pageUrl}:`, error);
     }
   }
 
