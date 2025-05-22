@@ -49,17 +49,20 @@ export async function run({
       let countWithText = 0;
 
       for (const payload of payloads) {
-        const text = payload.text;
-        if (typeof text === 'string' && text.trim().length > 0) {
-          const uniqueKey = `${collection}:${term}:${text}`;
-          if (!seenChunks.has(uniqueKey)) {
-            // Append clean RAG content chunk
-            contextChunks.push(`${text}`);
-            seenChunks.add(uniqueKey);
-            countWithText++;
+        if (Array.isArray(payload.data)) {
+          for (const entry of payload.data) {
+            const text = entry.text;
+            if (typeof text === 'string' && text.trim().length > 0) {
+              const uniqueKey = `${collection}:${term}:${text}`;
+              if (!seenChunks.has(uniqueKey)) {
+                contextChunks.push(text.trim());
+                seenChunks.add(uniqueKey);
+                countWithText++;
+              }
+            }
           }
         } else {
-          console.warn(`⚠️ Payload missing "text" field for term "${term}"`);
+          console.warn(`⚠️ Payload missing "data" field for term "${term}"`);
         }
       }
 
