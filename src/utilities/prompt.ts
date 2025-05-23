@@ -30,7 +30,7 @@ export function preparePrompt(
     }
   }
   
-  const handlebarsTemplate = template.replace(tokenRegex, '{{sanitize $1.$2}}');
+  const handlebarsTemplate = template.replace(tokenRegex, '{{{sanitize $1.$2}}}');
   
   const compiledTemplate = Handlebars.compile(handlebarsTemplate);
   return compiledTemplate(data);
