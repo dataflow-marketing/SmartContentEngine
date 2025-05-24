@@ -6,12 +6,29 @@ import { runJob, listJobs } from './orchestrator';
 
 const app = new Hono();
 
+const allowedOrigins = (process.env.CORS_ALLOWED_ORIGINS || "")
+  .split(',')
+  .map(origin => origin.trim())
+  .filter(Boolean);
+
 app.use('*', async (c, next) => {
+  const origin = c.req.header('origin');
+  if (origin && allowedOrigins.includes(origin)) {
+    c.header('Access-Control-Allow-Origin', origin);
+    c.header('Access-Control-Allow-Methods', 'GET, POST, PUT, OPTIONS');
+    c.header('Access-Control-Allow-Headers', 'Content-Type, x-api-key');
+  }
+
+  if (c.req.method === 'OPTIONS') {
+    return c.body(null, 204);
+  }
+
   const providedKey = c.req.header('x-api-key');
   const expectedKey = process.env.API_SECRET_KEY;
   if (!providedKey || providedKey !== expectedKey) {
     return c.text('Unauthorized', 401);
   }
+
   return next();
 });
 
