@@ -17,16 +17,11 @@ app.use('*', async (c, next) => {
     c.header('Access-Control-Allow-Origin', origin);
     c.header('Access-Control-Allow-Methods', 'GET, POST, PUT, OPTIONS');
     c.header('Access-Control-Allow-Headers', 'Content-Type, x-api-key');
+    c.header('Access-Control-Allow-Credentials', 'true');
   }
 
   if (c.req.method === 'OPTIONS') {
     return c.body(null, 204);
-  }
-
-  const providedKey = c.req.header('x-api-key');
-  const expectedKey = process.env.API_SECRET_KEY;
-  if (!providedKey || providedKey !== expectedKey) {
-    return c.text('Unauthorized', 401);
   }
 
   return next();
@@ -35,6 +30,12 @@ app.use('*', async (c, next) => {
 app.get('/health', (c) => c.json({ status: 'ok' }));
 
 app.put('/crawl', async (c) => {
+  const providedKey = c.req.header('x-api-key');
+  const expectedKey = process.env.API_SECRET_KEY;
+  if (!providedKey || providedKey !== expectedKey) {
+    return c.text('Unauthorized', 401);
+  }
+
   const body = await c.req.json();
   const { sitemap, db, slow } = body;
 
@@ -62,6 +63,12 @@ app.put('/crawl', async (c) => {
 });
 
 app.get('/jobs', async (c) => {
+  const providedKey = c.req.header('x-api-key');
+  const expectedKey = process.env.API_SECRET_KEY;
+  if (!providedKey || providedKey !== expectedKey) {
+    return c.text('Unauthorized', 401);
+  }
+
   try {
     const jobs = await listJobs();
     return c.json({ jobs });
@@ -72,6 +79,12 @@ app.get('/jobs', async (c) => {
 });
 
 app.post('/jobs/run', async (c) => {
+  const providedKey = c.req.header('x-api-key');
+  const expectedKey = process.env.API_SECRET_KEY;
+  if (!providedKey || providedKey !== expectedKey) {
+    return c.text('Unauthorized', 401);
+  }
+
   try {
     const body = await c.req.json();
     const { job, payload } = body;
