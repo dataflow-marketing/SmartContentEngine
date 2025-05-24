@@ -4,25 +4,29 @@ import { StringOutputParser } from "@langchain/core/output_parsers";
 
 export interface ContentGenerationParams {
   instruction: string;
+  topic: string;
   db: string;
   collections: string[];
-  vectors: Record<string, string[]>;
+  // vectors are now optional – if absent, we'll use `topic` for the "interests" collection
+  vectors?: Record<string, string[]>;
 }
 
 export async function run({
   instruction,
+  topic,
   db,
   collections,
-  vectors,
+  vectors = {},
 }: ContentGenerationParams) {
-  if (!instruction || !db || !collections?.length) {
-    throw new Error('Missing required parameters: instruction, db, or collections');
+  if (!instruction || !topic || !db || !collections?.length) {
+    throw new Error('Missing required parameters: instruction, topic, db, or collections');
   }
 
   console.log(`🧠 Instruction: ${instruction}`);
+  console.log(`🏷 Topic: ${topic}`);
   console.log(`📦 DB: ${db}`);
   console.log(`📚 Collections: ${collections.join(', ')}`);
-  console.log(`📊 Vectors:`, vectors);
+  console.log(`📊 Explicit Vectors:`, vectors);
 
   const seenChunks = new Set<string>();
   const contextChunks: string[] = [];
@@ -35,8 +39,13 @@ export async function run({
       continue;
     }
 
-    const terms = vectors?.[collection];
-    if (!Array.isArray(terms) || terms.length === 0) {
+    // If user passed explicit vectors for this collection, use them.
+    // Otherwise, if it's the "interests" collection, use the topic as the search term.
+    const terms = Array.isArray(vectors[collection]) && vectors[collection].length
+      ? vectors[collection]
+      : (collection === 'interests' ? [topic] : []);
+
+    if (terms.length === 0) {
       console.warn(`⚠️ No terms provided for collection "${collection}". Skipping.`);
       continue;
     }
@@ -47,36 +56,39 @@ export async function run({
       console.log(`✅ Found ${payloads.length} payloads for term "${term}"`);
 
       let countWithText = 0;
-
       for (const payload of payloads) {
         if (Array.isArray(payload.data)) {
           for (const entry of payload.data) {
             const text = entry.text;
-            if (typeof text === 'string' && text.trim().length > 0) {
-              const uniqueKey = `${collection}:${term}:${text}`;
-              if (!seenChunks.has(uniqueKey)) {
+            if (typeof text === 'string' && text.trim()) {
+              const key = `${collection}:${term}:${text}`;
+              if (!seenChunks.has(key)) {
                 contextChunks.push(text.trim());
-                seenChunks.add(uniqueKey);
+                seenChunks.add(key);
                 countWithText++;
               }
             }
           }
         } else {
-          console.warn(`⚠️ Payload missing "data" field for term "${term}"`);
+          console.warn(`⚠️ Payload missing "data" array for term "${term}"`);
         }
       }
-
-      console.log(`📄 Added ${countWithText} text chunks from payloads for term "${term}"`);
+      console.log(`📄 Added ${countWithText} text chunks for term "${term}"`);
     }
   }
 
   const context = contextChunks.join('\n\n---\n\n');
-
-  if (!context.trim()) {
+  if (!context) {
     console.warn('⚠️ No context collected from vector payloads.');
   }
 
-  const finalPrompt = `${instruction}\n\n${context}`;
+  // Build the final prompt with Instruction → Topic → Context
+  const finalPrompt = [
+    instruction.trim(),
+    `Topic: ${topic.trim()}`,
+    context && `Context:\n${context}`,
+  ].filter(Boolean).join('\n\n');
+
   console.log(`📝 Final prompt length: ${finalPrompt.length} chars`);
 
   const parser = new StringOutputParser();
@@ -85,6 +97,6 @@ export async function run({
 
   return {
     output,
-    prompt: finalPrompt
+    prompt: finalPrompt,
   };
 }
