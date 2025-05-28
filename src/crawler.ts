@@ -1,6 +1,5 @@
-process.env.CRAWLEE_STORAGE_DIR = 'storage';
-
-import { CheerioCrawler, RequestQueue } from 'crawlee';
+import { CheerioCrawler, Configuration } from 'crawlee';
+import { MemoryStorage } from '@crawlee/memory-storage';
 import Sitemapper from 'sitemapper';
 import {
   getPool,
@@ -44,8 +43,8 @@ export async function startCrawl(options: CrawlOptions = {}): Promise<void> {
     console.error('No database name provided.');
     return;
   }
-  const dbName = rawDbName.replace(/-/g, '_');
 
+  const dbName = rawDbName.replace(/-/g, '_');
   const pool = await getPool(dbName);
   await initDb(pool);
 
@@ -53,7 +52,9 @@ export async function startCrawl(options: CrawlOptions = {}): Promise<void> {
   const crawledUrls = await loadCrawledUrls(pool);
   const sitemapUrls = [sitemap];
 
-  const requestQueue = await RequestQueue.open('default');
+  const storage = new MemoryStorage();
+  const config = new Configuration({ storage });
+  const requestQueue = await storage.requestQueueStorage.getRequestQueue('default');
 
   const maxEntries = process.env.SITEMAP_MAX_CRAWL ? parseInt(process.env.SITEMAP_MAX_CRAWL) : 10;
 
@@ -84,18 +85,17 @@ export async function startCrawl(options: CrawlOptions = {}): Promise<void> {
   }
 
   const crawler = new CheerioCrawler({
+    config,
     requestQueue,
     maxConcurrency: isSlowMode ? 1 : 5,
-    requestHandler: async ({ request, $, response }) => {
+    requestHandler: async ({ request, $ }) => {
       const url = request.url;
       console.log(`Crawling: ${url}`);
 
       try {
         const html: string = $.html();
         const rawHtmlBase64: string = Buffer.from(html, 'utf-8').toString('base64');
-
         const extracted = extractFieldsFromBase64Html(rawHtmlBase64);
-
         const scrapedAt: string = new Date().toISOString().slice(0, 19).replace('T', ' ');
 
         const pageData: PageData = {

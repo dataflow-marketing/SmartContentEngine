@@ -12,10 +12,11 @@
     "@types/node": "^22.14.0",
     "concurrently": "^9.1.2",
     "esbuild": "^0.24.2",
-    "typescript": "^5.8.3"
+    "typescript": "^5.8.3",
+    "wait-on": "^8.0.3"
   },
   "dependencies": {
-    "@crawlee/memory-storage": "^3.13.1",
+    "@crawlee/memory-storage": "^3.13.5",
     "@hono/node-server": "^1.14.0",
     "@langchain/core": "^0.3.56",
     "@langchain/ollama": "^0.2.0",
