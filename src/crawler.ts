@@ -52,11 +52,13 @@ export async function startCrawl(options: CrawlOptions = {}): Promise<void> {
   const crawledUrls = await loadCrawledUrls(pool);
   const sitemapUrls = [sitemap];
 
-  const storage = new MemoryStorage();
-  const config = new Configuration({ storage });
-  const requestQueue = await RequestQueue.open('default', { config });
+  Configuration.getGlobalConfig().useStorageClient(new MemoryStorage());
 
-  const maxEntries = process.env.SITEMAP_MAX_CRAWL ? parseInt(process.env.SITEMAP_MAX_CRAWL) : 10;
+  const requestQueue = await RequestQueue.open('default');
+
+  const maxEntries = process.env.SITEMAP_MAX_CRAWL
+    ? parseInt(process.env.SITEMAP_MAX_CRAWL)
+    : 10;
 
   for (const sitemapUrl of sitemapUrls) {
     console.log(`Processing sitemap: ${sitemapUrl}`);
@@ -85,7 +87,6 @@ export async function startCrawl(options: CrawlOptions = {}): Promise<void> {
   }
 
   const crawler = new CheerioCrawler({
-    config,
     requestQueue,
     maxConcurrency: isSlowMode ? 1 : 5,
     requestHandler: async ({ request, $ }) => {
@@ -93,10 +94,10 @@ export async function startCrawl(options: CrawlOptions = {}): Promise<void> {
       console.log(`Crawling: ${url}`);
 
       try {
-        const html: string = $.html();
-        const rawHtmlBase64: string = Buffer.from(html, 'utf-8').toString('base64');
+        const html = $.html();
+        const rawHtmlBase64 = Buffer.from(html, 'utf-8').toString('base64');
         const extracted = extractFieldsFromBase64Html(rawHtmlBase64);
-        const scrapedAt: string = new Date().toISOString().slice(0, 19).replace('T', ' ');
+        const scrapedAt = new Date().toISOString().slice(0, 19).replace('T', ' ');
 
         const pageData: PageData = {
           url,
