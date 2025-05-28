@@ -54,7 +54,7 @@ export async function startCrawl(options: CrawlOptions = {}): Promise<void> {
 
   const storage = new MemoryStorage();
   const config = new Configuration({ storage });
-  const requestQueue = await storage.requestQueueStorage.getRequestQueue('default');
+  const requestQueue = await RequestQueue.open('default', { config });
 
   const maxEntries = process.env.SITEMAP_MAX_CRAWL ? parseInt(process.env.SITEMAP_MAX_CRAWL) : 10;
 
