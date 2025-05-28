@@ -19,6 +19,8 @@ const PUBLIC_JOBS = new Set(
     .filter(Boolean)
 );
 
+let jobQueue: Promise<any> = Promise.resolve();
+
 const app = new Hono();
 
 app.use(
@@ -87,8 +89,11 @@ app.post("/jobs/run", async (c) => {
     }
   }
 
+  const thisJob = jobQueue.then(() => runJob(job, payload));
+  jobQueue = thisJob.catch(() => {}); 
+
   try {
-    const result = await runJob(job, payload);
+    const result = await thisJob;
     return c.json({ result });
   } catch (error: any) {
     console.error(error);
