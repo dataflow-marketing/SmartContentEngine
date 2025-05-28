@@ -82,6 +82,7 @@ export async function startCrawl(options: CrawlOptions = {}): Promise<void> {
     const crawler = new CheerioCrawler({
       requestQueue,
       maxConcurrency: isSlowMode ? 1 : 5,
+      useSessionPool: false,
       requestHandler: async ({ request, $ }) => {
         const url = request.url;
         console.log(`Crawling: ${url}`);
@@ -113,7 +114,6 @@ export async function startCrawl(options: CrawlOptions = {}): Promise<void> {
 
     await crawler.run();
     console.log(`🎉 Finished crawl for sitemap: ${sitemapUrl}`);
-
   }
 
   console.log('🚀 All sitemaps processed.');
