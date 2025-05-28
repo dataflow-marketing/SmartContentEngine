@@ -49,11 +49,14 @@ app.put("/crawl", async (c) => {
 
   process.env.SLOW_MODE = slow ? "true" : "false";
 
-  startCrawl({ sitemapUrl: sitemap, databaseName: db })
-    .then(() => console.log("Crawl finished successfully."))
-    .catch((err) => console.error("Error during crawl:", err));
-
-  return c.json({ status: "started", sitemap, database: db, slow });
+  try {
+    await startCrawl({ sitemapUrl: sitemap, databaseName: db });
+    console.log("Crawl finished successfully.");
+    return c.json({ status: "finished", sitemap, database: db, slow });
+  } catch (err: any) {
+    console.error("Error during crawl:", err);
+    return c.json({ status: "error", message: err.message }, 500);
+  }
 });
 
 app.get("/jobs", async (c) => {
@@ -72,7 +75,6 @@ app.get("/jobs", async (c) => {
 });
 
 app.post("/jobs/run", async (c) => {
-  // 1. Parse out job name (and payload)
   const { job, payload } = await c.req.json();
   if (!job) {
     return c.json({ error: "Job name is required" }, 400);
