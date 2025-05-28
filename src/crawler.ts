@@ -1,4 +1,4 @@
-import { CheerioCrawler, Configuration } from 'crawlee';
+import { CheerioCrawler, Configuration, RequestQueue } from 'crawlee';
 import { MemoryStorage } from '@crawlee/memory-storage';
 import Sitemapper from 'sitemapper';
 import {
