@@ -12,18 +12,6 @@ interface jobPayload {
   searchTerm?: string;
 }
 
-async function updateWebsiteDataField(pool: any, targetField: string, value: string): Promise<void> {
-  await pool.query(
-    `
-    UPDATE website
-    SET website_data = JSON_SET(website_data, '$.${targetField}', CAST(? AS JSON))
-    WHERE id = 1
-    `,
-    [JSON.stringify(value)]
-  );
-  console.log(`✅ Database updated: website_data.${targetField} set successfully.`);
-}
-
 export async function run(payload?: jobPayload) {
   if (!payload || !payload.db || !payload.prompt || !payload.aggregationItem) {
     throw new Error('Missing required payload: { db, prompt, aggregationItem }');
@@ -44,46 +32,51 @@ export async function run(payload?: jobPayload) {
     url: process.env.QDRANT_URL || 'http://localhost:6333',
   });
 
-  const searchResult = await qdrantClient.search(collectionName, {
-    vector: searchEmbedding,
-    limit: 5,
-    with_payload: true,
-  });
+  let searchResult;
+  try {
+    searchResult = await qdrantClient.search(collectionName, {
+      vector: searchEmbedding,
+      limit: 5,
+      with_payload: true,
+    });
+  } catch (err: any) {
+    // handle missing collection
+    if (err?.status === 404) {
+      console.warn(`⚠️ Qdrant collection "${collectionName}" not found. Skipping vector aggregate.`);
+      await pool.end();
+      return;
+    }
+    // re-throw any other error
+    throw err;
+  }
 
-  if (!searchResult || searchResult.length === 0) {
+  if (!searchResult.length) {
     console.log(`✅ No relevant vectors found in Qdrant collection: ${collectionName}`);
     await pool.end();
     return;
   }
 
   console.log(`Found ${searchResult.length} relevant entries from Qdrant.`);
-
-  searchResult.forEach((result, index) => {
-    console.log(`Result ${index + 1} full doc:`, JSON.stringify(result, null, 2));
-  });
-
   const combinedContent = searchResult
-    .map((result) => result.payload?.[aggregationItem]?.trim() || '')
-    .filter(text => text.length > 0)
+    .map(r => r.payload?.[aggregationItem]?.trim() || '')
+    .filter(Boolean)
     .join('\n');
 
   if (!combinedContent) {
-    console.warn('⚠️ No valid content found in search results. Skipping overall generation.');
+    console.warn('⚠️ No valid content found in search results. Skipping generation.');
     await pool.end();
     return;
   }
 
-  let finalPrompt = payloadPrompt;
-  const dynamicPlaceholder = `{${aggregationItem}}`;
+  // inject combinedContent into the prompt
+  const placeholder = `{${aggregationItem}}`;
+  const finalPrompt = payloadPrompt.includes(placeholder)
+    ? payloadPrompt.replace(new RegExp(placeholder, 'g'), combinedContent)
+    : payloadPrompt;
 
-  if (finalPrompt.includes(dynamicPlaceholder)) {
-    finalPrompt = finalPrompt.replace(new RegExp(dynamicPlaceholder, 'g'), combinedContent);
-  } else {
-    console.warn(`⚠️ No placeholder matching your aggregationItem (${dynamicPlaceholder}) found in the prompt template.`);
-  }
-console.log (finalPrompt);
+  console.log(finalPrompt);
+
   const promptTemplate = PromptTemplate.fromTemplate(finalPrompt);
-
   const llm = new Ollama({
     baseUrl: process.env.OLLAMA_API_URL || 'http://localhost:11434',
     model: process.env.OLLAMA_MODEL || 'llama3.2',
@@ -101,7 +94,15 @@ console.log (finalPrompt);
     return;
   }
 
-  await updateWebsiteDataField(pool, aggregationItem, overallResult);
+  await pool.query(
+    `
+    UPDATE website
+    SET website_data = JSON_SET(website_data, '$.${aggregationItem}', CAST(? AS JSON))
+    WHERE id = 1
+    `,
+    [JSON.stringify(overallResult)]
+  );
+  console.log(`✅ Database updated: website_data.${aggregationItem} set successfully.`);
 
   await pool.end();
   console.log(`✅ Job completed for database: ${databaseName}`);
