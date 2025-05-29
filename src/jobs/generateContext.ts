@@ -144,10 +144,15 @@ export async function run(payload?: jobPayload) {
     }
 
     let items = await parseCompletion(completion);
+
     if (!items) {
       console.warn(`⚠ no JSON array, treating raw output as single item for ${pageUrl}`);
       const bare = completion.trim().replace(/^"|"$/g, '');
-      items = [bare];
+      items = [{ interest: bare, text: pageData.text }];
+    } else {
+      if (items.every(i => typeof i === 'string')) {
+        items = items.map(str => ({ interest: str, text: pageData.text }));
+      }
     }
 
     await updatePageDataField(pool, pageUrl, targetField, items);
