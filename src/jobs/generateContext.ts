@@ -99,7 +99,7 @@ export async function run(payload?: jobPayload) {
 
   const where = forceRedo
     ? ''
-    : `WHERE JSON_EXTRACT(page_data, '$.${targetField}') IS NULL`;
+    : `WHERE JSON_EXTRACT(page_data, '$.\${targetField}') IS NULL`;
 
   const [pages] = await pool.query<{ url: string; page_data: any }[]>(
     `SELECT url, page_data FROM pages ${where}`
@@ -118,6 +118,19 @@ export async function run(payload?: jobPayload) {
     maxRetries: 3,
   });
 
+  const llmTimeoutMs = parseInt(process.env.LLM_REQUEST_TIMEOUT_MS || '60000', 10);
+  async function invokeWithTimeout(prompt: string): Promise<string> {
+    return Promise.race<string>([
+      llm.invoke(prompt),
+      new Promise<string>((_, reject) =>
+        setTimeout(
+          () => reject(new Error(`LLM request timed out after ${llmTimeoutMs}ms`)),
+          llmTimeoutMs
+        )
+      ),
+    ]);
+  }
+
   let qdrantClient: QdrantClient, collectionName: string;
   if (vectorEnabled) {
     qdrantClient = new QdrantClient({ url: process.env.QDRANT_URL || 'http://localhost:6333' });
@@ -134,7 +147,14 @@ export async function run(payload?: jobPayload) {
     console.log(`🚀 ${pageUrl}`);
     const promptData = { page: pageData, website: website_data };
     const finalPrompt = preparePrompt(payloadPrompt, promptData);
-    const completion = await llm.invoke(finalPrompt);
+
+    let completion: string;
+    try {
+      completion = await invokeWithTimeout(finalPrompt);
+    } catch (error: any) {
+      console.error(`⚠️ LLM request for ${pageUrl} failed or timed out:`, error);
+      continue;
+    }
 
     if (!vectorEnabled) {
       const textResult = completion.trim();
@@ -175,7 +195,7 @@ export async function run(payload?: jobPayload) {
           [targetField]: interest,
           data: updated,
         });
-        console.log(`🔄 merged ${updated.length} for "${interest}"`);
+        console.log(`🔄 merged ${updated.length} for \"${interest}\"`);
       } else {
         const vector = await getEmbedding(text);
         if (!vector?.length) continue;
@@ -183,7 +203,7 @@ export async function run(payload?: jobPayload) {
         await qdrantClient!.upsert(collectionName!, {
           points: [{ id, vector, payload: { [targetField]: interest, data: [{ text, url: pageUrl }] } }],
         });
-        console.log(`✅ inserted "${interest}"`);
+        console.log(`✅ inserted \"${interest}\"`);
       }
     }
   }
