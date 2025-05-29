@@ -9,7 +9,7 @@ interface jobPayload {
   db: string;
   prompt: string;
   field: string;
-  vector?: boolean;      // controls vector vs text behavior
+  vector?: boolean;
   forceRedo?: boolean;
 }
 
@@ -101,7 +101,7 @@ export async function run(payload?: jobPayload) {
     ? ''
     : `WHERE JSON_EXTRACT(page_data, '$.${targetField}') IS NULL`;
 
-  const [pages] = await pool.query< { url: string; page_data: any }[]>(
+  const [pages] = await pool.query<{ url: string; page_data: any }[]>(
     `SELECT url, page_data FROM pages ${where}`
   );
 
@@ -137,18 +137,17 @@ export async function run(payload?: jobPayload) {
     const completion = await llm.invoke(finalPrompt);
 
     if (!vectorEnabled) {
-      // --- PLAIN TEXT PATH ---
       const textResult = completion.trim();
       await updatePageDataField(pool, pageUrl, targetField, textResult);
       console.log(`✅ [text] saved for ${pageUrl}`);
       continue;
     }
 
-    // --- VECTOR PATH: expect JSON array ---
-    const items = await parseCompletion(completion);
+    let items = await parseCompletion(completion);
     if (!items) {
-      console.warn(`⚠ malformed JSON for ${pageUrl}`);
-      continue;
+      console.warn(`⚠ no JSON array, treating raw output as single item for ${pageUrl}`);
+      const bare = completion.trim().replace(/^"|"$/g, '');
+      items = [bare];
     }
 
     await updatePageDataField(pool, pageUrl, targetField, items);
