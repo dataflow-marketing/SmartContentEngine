@@ -97,9 +97,10 @@ export async function run(payload?: jobPayload) {
   const pool = await getPool(databaseName);
   const [[{ website_data }]] = await pool.query(`SELECT website_data FROM website LIMIT 1`);
 
+  const jsonPath = `$.${targetField}`;
   const where = forceRedo
     ? ''
-    : `WHERE JSON_EXTRACT(page_data, '$.\${targetField}') IS NULL`;
+    : `WHERE JSON_EXTRACT(page_data, '${jsonPath}') IS NULL`;
 
   const [pages] = await pool.query<{ url: string; page_data: any }[]>(
     `SELECT url, page_data FROM pages ${where}`
