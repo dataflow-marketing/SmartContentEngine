@@ -13,6 +13,8 @@ interface jobPayload {
   forceRedo?: boolean;
 }
 
+const DEBUG = process.env.DEBUG?.toLowerCase() === 'true';
+
 function generateId(content: string): string {
   const hash = crypto.createHash('sha1').update(content).digest('hex');
   return [
@@ -128,7 +130,9 @@ export async function run(payload?: jobPayload) {
     const streamPromise = (async () => {
       let result = '';
       for await (const chunk of responseStream) {
-        process.stdout.write(chunk);
+        if (DEBUG) {
+          process.stdout.write(chunk);
+        }
         result += chunk;
       }
       return result;
