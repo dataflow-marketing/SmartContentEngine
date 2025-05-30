@@ -117,19 +117,31 @@ export async function run(payload?: jobPayload) {
     model: process.env.OLLAMA_MODEL || 'llama3',
     temperature: 0.3,
     maxRetries: 3,
+    streaming: true,          
   });
 
   const llmTimeoutMs = parseInt(process.env.LLM_REQUEST_TIMEOUT_MS || '60000', 10);
+
   async function invokeWithTimeout(prompt: string): Promise<string> {
-    return Promise.race<string>([
-      llm.invoke(prompt),
-      new Promise<string>((_, reject) =>
-        setTimeout(
-          () => reject(new Error(`LLM request timed out after ${llmTimeoutMs}ms`)),
-          llmTimeoutMs
-        )
-      ),
-    ]);
+    const responseStream = await llm.stream(prompt);
+
+    const streamPromise = (async () => {
+      let result = '';
+      for await (const chunk of responseStream) {
+        process.stdout.write(chunk);
+        result += chunk;
+      }
+      return result;
+    })();
+
+    const timeoutPromise = new Promise<string>((_, reject) =>
+      setTimeout(
+        () => reject(new Error(`LLM request timed out after ${llmTimeoutMs}ms`)),
+        llmTimeoutMs
+      )
+    );
+
+    return Promise.race([streamPromise, timeoutPromise]);
   }
 
   let qdrantClient: QdrantClient, collectionName: string;
@@ -146,8 +158,7 @@ export async function run(payload?: jobPayload) {
     }
 
     console.log(`🚀 ${pageUrl}`);
-    const promptData = { page: pageData, website: website_data };
-    const finalPrompt = preparePrompt(payloadPrompt, promptData);
+    const finalPrompt = preparePrompt(payloadPrompt, { page: pageData, website: website_data });
 
     let completion: string;
     try {
@@ -165,15 +176,12 @@ export async function run(payload?: jobPayload) {
     }
 
     let items = await parseCompletion(completion);
-
     if (!items) {
       console.warn(`⚠ no JSON array, treating raw output as single item for ${pageUrl}`);
       const bare = completion.trim().replace(/^"|"$/g, '');
       items = [{ interest: bare, text: pageData.text }];
-    } else {
-      if (items.every(i => typeof i === 'string')) {
-        items = items.map(str => ({ interest: str, text: pageData.text }));
-      }
+    } else if (items.every(i => typeof i === 'string')) {
+      items = items.map(str => ({ interest: str, text: pageData.text }));
     }
 
     await updatePageDataField(pool, pageUrl, targetField, items);
@@ -188,23 +196,20 @@ export async function run(payload?: jobPayload) {
       const existing = await getExistingPoint(qdrantClient!, collectionName!, id);
 
       if (existing) {
-        const data = Array.isArray(existing.payload?.data)
-          ? existing.payload.data
-          : [];
+        const data = Array.isArray(existing.payload?.data) ? existing.payload.data : [];
         const updated = [...data, { text, url: pageUrl }];
         await updatePayloadOnly(qdrantClient!, collectionName!, id, {
           [targetField]: interest,
           data: updated,
         });
-        console.log(`🔄 merged ${updated.length} for \"${interest}\"`);
+        console.log(`🔄 merged ${updated.length} for "${interest}"`);
       } else {
         const vector = await getEmbedding(text);
         if (!vector?.length) continue;
-
         await qdrantClient!.upsert(collectionName!, {
           points: [{ id, vector, payload: { [targetField]: interest, data: [{ text, url: pageUrl }] } }],
         });
-        console.log(`✅ inserted \"${interest}\"`);
+        console.log(`✅ inserted "${interest}"`);
       }
     }
   }
