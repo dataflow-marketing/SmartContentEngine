@@ -6,8 +6,6 @@ import { startCrawl } from "./crawler";
 import { runJob, listJobs } from "./orchestrator";
 import PQueue from "p-queue";
 
-console.log("▶️ CORS_ALLOWED_ORIGINS =", process.env.CORS_ALLOWED_ORIGINS);
-
 const allowedOrigins = (process.env.CORS_ALLOWED_ORIGINS || "")
   .split(",")
   .map((o) => o.trim())
@@ -20,8 +18,8 @@ const PUBLIC_JOBS = new Set(
     .filter(Boolean)
 );
 
-// create a single‐worker queue that respects priority
-const queue = new PQueue({ concurrency: 1 });
+const contentIdeasQueue = new PQueue({ concurrency: 1 });
+const defaultQueue      = new PQueue({ concurrency: 1 });
 
 const app = new Hono();
 
@@ -29,7 +27,6 @@ app.use(
   "*",
   cors({
     origin: (origin) => {
-      console.log("🌐 Incoming Origin:", origin);
       return allowedOrigins.includes(origin ?? "") ? origin : "";
     },
     allowMethods: ["GET", "POST", "PUT", "OPTIONS"],
@@ -55,10 +52,8 @@ app.put("/crawl", async (c) => {
 
   try {
     await startCrawl({ sitemapUrl: sitemap, databaseName: db });
-    console.log("Crawl finished successfully.");
     return c.json({ status: "finished", sitemap, database: db, slow });
   } catch (err: any) {
-    console.error("Error during crawl:", err);
     return c.json({ status: "error", message: err.message }, 500);
   }
 });
@@ -73,7 +68,6 @@ app.get("/jobs", async (c) => {
     const jobs = await listJobs();
     return c.json({ jobs });
   } catch (error: any) {
-    console.error(error);
     return c.json({ error: error.message }, 500);
   }
 });
@@ -91,19 +85,16 @@ app.post("/jobs/run", async (c) => {
     }
   }
 
-  // determine priority: lower number = higher priority
-  const priority = job === "generateContentIdeas" ? 1 : 5;
+  const queue = job === "generateContentIdeas"
+    ? contentIdeasQueue
+    : defaultQueue;
 
-  // enqueue the job runner
   const task = () => runJob(job, payload);
-  const queued = queue.add(task, { priority });
-
   try {
-    const result = await queued;
+    const result = await queue.add(task);
     return c.json({ status: "queued", job, result });
-  } catch (error: any) {
-    console.error("Job execution error:", error);
-    return c.json({ error: error.message }, 500);
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
   }
 });
 
