@@ -4,6 +4,7 @@ import { serve } from "@hono/node-server";
 import { cors } from "hono/cors";
 import { startCrawl } from "./crawler";
 import { runJob, listJobs } from "./orchestrator";
+import PQueue from "p-queue";
 
 console.log("▶️ CORS_ALLOWED_ORIGINS =", process.env.CORS_ALLOWED_ORIGINS);
 
@@ -19,7 +20,8 @@ const PUBLIC_JOBS = new Set(
     .filter(Boolean)
 );
 
-let jobQueue: Promise<any> = Promise.resolve();
+// create a single‐worker queue that respects priority
+const queue = new PQueue({ concurrency: 1 });
 
 const app = new Hono();
 
@@ -89,14 +91,18 @@ app.post("/jobs/run", async (c) => {
     }
   }
 
-  const thisJob = jobQueue.then(() => runJob(job, payload));
-  jobQueue = thisJob.catch(() => {}); 
+  // determine priority: lower number = higher priority
+  const priority = job === "generateContentIdeas" ? 1 : 5;
+
+  // enqueue the job runner
+  const task = () => runJob(job, payload);
+  const queued = queue.add(task, { priority });
 
   try {
-    const result = await thisJob;
-    return c.json({ result });
+    const result = await queued;
+    return c.json({ status: "queued", job, result });
   } catch (error: any) {
-    console.error(error);
+    console.error("Job execution error:", error);
     return c.json({ error: error.message }, 500);
   }
 });
