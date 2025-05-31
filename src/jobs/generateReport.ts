@@ -13,6 +13,8 @@ export async function run({
   summary: string
   pageFieldTotals: Record<string, number>
   fieldInterestCounts: Record<string, Record<string, number>>
+  topInterests: string[]
+  underservedInterests: string[]
 }> {
   console.log(`📝 Starting "generateReport" job for database "${db}"`)
   console.log(`❌ Ignoring fields: ${JSON.stringify(ignoreFields)}`)
@@ -88,11 +90,11 @@ export async function run({
             if (rawLabel.startsWith('[') || rawLabel.startsWith('{')) {
               continue
             }
-            const label = rawLabel
             if (!fieldInterestCounts[key]) {
               fieldInterestCounts[key] = {}
             }
-            fieldInterestCounts[key][label] = (fieldInterestCounts[key][label] || 0) + 1
+            fieldInterestCounts[key][rawLabel] =
+              (fieldInterestCounts[key][rawLabel] || 0) + 1
           }
         }
       }
@@ -116,11 +118,26 @@ export async function run({
     )
   }
 
+  const interestCounts = sortedFieldInterestCounts['interests'] || {}
+
+  const topInterests = Object.keys(interestCounts).slice(0, 5)
+
+  const underservedInterests = Object.entries(interestCounts)
+    .filter(([, cnt]) => cnt > 0)
+    .sort(([aLabel, aCnt], [bLabel, bCnt]) => {
+      if (aCnt !== bCnt) return aCnt - bCnt
+      return aLabel.localeCompare(bLabel)
+    })
+    .map(([label]) => label)
+    .slice(0, 5)
+
   const result = {
     sitemap: parsedWebsiteData.sitemap,
     summary: parsedWebsiteData.summary,
     pageFieldTotals: sortedPageFieldTotals,
     fieldInterestCounts: sortedFieldInterestCounts,
+    topInterests,
+    underservedInterests,
   }
 
   return result
