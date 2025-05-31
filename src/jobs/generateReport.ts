@@ -86,10 +86,20 @@ export async function run({ db }: ReportParams): Promise<{
         const count = value.length
         totals[key] = (totals[key] || 0) + count
 
-        // 4b. If array items have an `interest` property, accumulate per‐field counts
         for (const item of value) {
-          if (item && typeof item === 'object' && 'interest' in item) {
-            const label = String(item.interest)
+          if (
+            item &&
+            typeof item === 'object' &&
+            'interest' in item &&
+            typeof item.interest === 'string'
+          ) {
+            const rawLabel = item.interest.trim()
+
+            if (rawLabel.startsWith('[') || rawLabel.startsWith('{')) {
+              continue
+            }
+
+            const label = rawLabel
             if (!fieldInterestCounts[key]) {
               fieldInterestCounts[key] = {}
             }
@@ -102,7 +112,7 @@ export async function run({ db }: ReportParams): Promise<{
   }
 
   console.log(`✅ Aggregated page_data array field totals:`, totals)
-  console.log(`✅ Aggregated per‐field interest counts:`, fieldInterestCounts)
+  console.log(`✅ Aggregated per‐field interest counts (raw):`, fieldInterestCounts)
 
   const sortedPageFieldTotals = Object.fromEntries(
     Object.entries(totals).sort(([, aCount], [, bCount]) => bCount - aCount)
