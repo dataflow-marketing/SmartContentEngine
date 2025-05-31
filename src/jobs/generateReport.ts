@@ -8,7 +8,7 @@ export async function run({ db }: ReportParams): Promise<{
   sitemap: string
   summary: string
   pageFieldTotals: Record<string, number>
-  interestCounts: Record<string, number>
+  fieldInterestCounts: Record<string, Record<string, number>>
 }> {
   console.log(`📝 Starting "generateReport" job for database "${db}"`)
 
@@ -57,7 +57,7 @@ export async function run({ db }: ReportParams): Promise<{
   const [pageRows] = await pool.query<any[]>('SELECT page_data FROM pages')
 
   const totals: Record<string, number> = {}
-  const interestCounts: Record<string, number> = {}
+  const fieldInterestCounts: Record<string, Record<string, number>> = {}
 
   for (const row of pageRows) {
     const rawPageData = row.page_data
@@ -86,13 +86,15 @@ export async function run({ db }: ReportParams): Promise<{
         const count = value.length
         totals[key] = (totals[key] || 0) + count
 
-        if (key === 'interests') {
-          for (const item of value) {
-            const label =
-              typeof item.interest === 'string'
-                ? item.interest
-                : String(item.interest)
-            interestCounts[label] = (interestCounts[label] || 0) + 1
+        // 4b. If array items have an `interest` property, accumulate per‐field counts
+        for (const item of value) {
+          if (item && typeof item === 'object' && 'interest' in item) {
+            const label = String(item.interest)
+            if (!fieldInterestCounts[key]) {
+              fieldInterestCounts[key] = {}
+            }
+            fieldInterestCounts[key][label] =
+              (fieldInterestCounts[key][label] || 0) + 1
           }
         }
       }
@@ -100,24 +102,27 @@ export async function run({ db }: ReportParams): Promise<{
   }
 
   console.log(`✅ Aggregated page_data array field totals:`, totals)
-  console.log(`✅ Aggregated interest label counts:`, interestCounts)
+  console.log(`✅ Aggregated per‐field interest counts:`, fieldInterestCounts)
 
   const sortedPageFieldTotals = Object.fromEntries(
     Object.entries(totals).sort(([, aCount], [, bCount]) => bCount - aCount)
   )
 
-  const sortedInterestCounts = Object.fromEntries(
-    Object.entries(interestCounts).sort(([, aCount], [, bCount]) => bCount - aCount)
-  )
+  const sortedFieldInterestCounts: Record<string, Record<string, number>> = {}
+  for (const [field, counts] of Object.entries(fieldInterestCounts)) {
+    sortedFieldInterestCounts[field] = Object.fromEntries(
+      Object.entries(counts).sort(([, aCount], [, bCount]) => bCount - aCount)
+    )
+  }
 
   console.log(`✅ Sorted pageFieldTotals:`, sortedPageFieldTotals)
-  console.log(`✅ Sorted interestCounts:`, sortedInterestCounts)
+  console.log(`✅ Sorted fieldInterestCounts:`, sortedFieldInterestCounts)
 
   const result = {
     sitemap: parsedWebsiteData.sitemap,
     summary: parsedWebsiteData.summary,
     pageFieldTotals: sortedPageFieldTotals,
-    interestCounts: sortedInterestCounts,
+    fieldInterestCounts: sortedFieldInterestCounts,
   }
   console.log(`📝 generateReport output:`, result)
 
