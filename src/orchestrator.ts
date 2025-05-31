@@ -7,11 +7,13 @@ const __dirname = dirname(__filename);
 import * as generateAggregate from './jobs/generateAggregate.js';
 import * as generateContext from './jobs/generateContext.js';
 import * as generateContentIdeas from './jobs/generateContentIdeas.js';
+import * as generateReport from './jobs/generateReport.js';
 
 const jobMap: Record<string, { run: (payload?: any) => Promise<any> }> = {
   generateContext,
   generateAggregate,
   generateContentIdeas,
+  generateReport,
 };
 
 export async function listJobs() {
