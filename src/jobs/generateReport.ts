@@ -15,9 +15,7 @@ export async function run({ db }: ReportParams): Promise<{
   const pool = await getPool(db)
 
   console.log(`🔍 Querying "website" table in database "${db}" for website_data`)
-  const [websiteRows] = await pool.query<any[]>(
-    'SELECT website_data FROM website LIMIT 1'
-  )
+  const [websiteRows] = await pool.query<any[]>('SELECT website_data FROM website LIMIT 1')
 
   if (websiteRows.length === 0) {
     throw new Error('⚠️ No rows found in `website` table.')
@@ -38,9 +36,7 @@ export async function run({ db }: ReportParams): Promise<{
       )
     }
   } else {
-    throw new Error(
-      `⚠️ Unexpected type for website_data: ${typeof rawWebsiteData}`
-    )
+    throw new Error(`⚠️ Unexpected type for website_data: ${typeof rawWebsiteData}`)
   }
 
   if (
@@ -115,13 +111,19 @@ export async function run({ db }: ReportParams): Promise<{
   console.log(`✅ Aggregated per‐field interest counts (raw):`, fieldInterestCounts)
 
   const sortedPageFieldTotals = Object.fromEntries(
-    Object.entries(totals).sort(([, aCount], [, bCount]) => bCount - aCount)
+    Object.entries(totals).sort(([aKey, aCount], [bKey, bCount]) => {
+      if (bCount !== aCount) return bCount - aCount
+      return aKey.localeCompare(bKey)
+    })
   )
 
   const sortedFieldInterestCounts: Record<string, Record<string, number>> = {}
   for (const [field, counts] of Object.entries(fieldInterestCounts)) {
     sortedFieldInterestCounts[field] = Object.fromEntries(
-      Object.entries(counts).sort(([, aCount], [, bCount]) => bCount - aCount)
+      Object.entries(counts).sort(([aLabel, aCount], [bLabel, bCount]) => {
+        if (bCount !== aCount) return bCount - aCount
+        return aLabel.localeCompare(bLabel)
+      })
     )
   }
 
