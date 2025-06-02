@@ -6,51 +6,8 @@ export interface ReportParams {
   ignoreFields: string[]
 }
 
-function cosineSimilarity(a: number[], b: number[]): number {
-  let dot = 0
-  let normA = 0
-  let normB = 0
-  for (let i = 0; i < a.length; i++) {
-    dot += a[i] * b[i]
-    normA += a[i] * a[i]
-    normB += b[i] * b[i]
-  }
-  if (normA === 0 || normB === 0) return 0
-  return dot / (Math.sqrt(normA) * Math.sqrt(normB))
-}
-
 async function getPageEmbedding(dbName: string, url: string): Promise<number[] | null> {
   return null
-}
-
-function computeCentroid(vectors: number[][]): number[] {
-  if (!vectors.length) return []
-  const dim = vectors[0].length
-  const sum = new Array<number>(dim).fill(0)
-  for (const vec of vectors) {
-    for (let i = 0; i < dim; i++) {
-      sum[i] += vec[i]
-    }
-  }
-  return sum.map((s) => s / vectors.length)
-}
-
-function sortLabelCounts(pairs: [string, number][]): [string, number][] {
-  return pairs.sort(([aLabel, aCnt], [bLabel, bCnt]) => {
-    if (bCnt !== aCnt) return bCnt - aCnt
-    return aLabel.localeCompare(bLabel)
-  })
-}
-
-function jaccardSim(a: string[], b: string[]): number {
-  const setA = new Set(a)
-  const setB = new Set(b)
-  let intersectionSize = 0
-  for (const x of setA) {
-    if (setB.has(x)) intersectionSize++
-  }
-  const unionSize = new Set([...a, ...b]).size
-  return unionSize === 0 ? 0 : intersectionSize / unionSize
 }
 
 export async function run({
@@ -61,10 +18,6 @@ export async function run({
   summary: string
   pageFieldTotals: Record<string, number>
   fieldInterestCounts: Record<string, Record<string, number>>
-  topInterests: string[]
-  underservedInterests: string[]
-  interestCentroidSims: { interestA: string; interestB: string; similarity: number }[]
-  interestGapPairs: { interestA: string; interestB: string; similarity: number }[]
 }> {
   console.log(`📝 Starting "generateReport" job for database "${db}"`)
   console.log(`❌ Ignoring fields: ${JSON.stringify(ignoreFields)}`)
@@ -107,7 +60,6 @@ export async function run({
 
   const totals: Record<string, number> = {}
   const fieldInterestCounts: Record<string, Record<string, number>> = {}
-  const interestToPages: Record<string, string[]> = {}
 
   for (const row of pageRows) {
     const url: string = row.url
@@ -146,9 +98,6 @@ export async function run({
               fieldInterestCounts[key] = fieldInterestCounts[key] || {}
               fieldInterestCounts[key][rawLabel] =
                 (fieldInterestCounts[key][rawLabel] || 0) + 1
-
-              interestToPages[rawLabel] = interestToPages[rawLabel] || []
-              interestToPages[rawLabel].push(url)
             }
           }
         }
@@ -165,81 +114,17 @@ export async function run({
 
   const sortedFieldInterestCounts: Record<string, Record<string, number>> = {}
   for (const [field, counts] of Object.entries(fieldInterestCounts)) {
-    sortedFieldInterestCounts[field] = Object.fromEntries(
-      sortLabelCounts(Object.entries(counts) as [string, number][])
-    )
-  }
-
-  const interestCounts = sortedFieldInterestCounts['interests'] || {}
-  const topInterests = Object.keys(interestCounts).slice(0, 5)
-  const underservedInterests = Object.entries(interestCounts)
-    .filter(([, cnt]) => cnt > 0)
-    .sort(([aLabel, aCnt], [bLabel, bCnt]) => {
-      if (aCnt !== bCnt) return aCnt - bCnt
+    const sortedCounts = Object.entries(counts).sort(([aLabel, aCnt], [bLabel, bCnt]) => {
+      if (bCnt !== aCnt) return bCnt - aCnt
       return aLabel.localeCompare(bLabel)
     })
-    .map(([label]) => label)
-    .slice(0, 5)
-
-    const interestCentroids: Record<string, number[]> = {}
-  for (const label of Object.keys(interestToPages)) {
-    const urls = interestToPages[label]
-    const vectors: number[][] = []
-    for (const pageUrl of urls) {
-      const emb = await getPageEmbedding(db, pageUrl)
-      if (emb) vectors.push(emb)
-    }
-    if (vectors.length > 0) {
-      interestCentroids[label] = computeCentroid(vectors)
-    }
+    sortedFieldInterestCounts[field] = Object.fromEntries(sortedCounts)
   }
 
-  const labels = Object.keys(interestCentroids)
-  const sims: { interestA: string; interestB: string; similarity: number }[] = []
-
-  if (labels.length > 1) {
-    for (let i = 0; i < labels.length; i++) {
-      for (let j = i + 1; j < labels.length; j++) {
-        const A = labels[i]
-        const B = labels[j]
-        const vecA = interestCentroids[A]
-        const vecB = interestCentroids[B]
-        if (vecA.length === 0 || vecB.length === 0) continue
-        sims.push({
-          interestA: A,
-          interestB: B,
-          similarity: cosineSimilarity(vecA, vecB),
-        })
-      }
-    }
-  } else {
-    const allLabels = Object.keys(interestToPages)
-    for (let i = 0; i < allLabels.length; i++) {
-      for (let j = i + 1; j < allLabels.length; j++) {
-        const A = allLabels[i]
-        const B = allLabels[j]
-        const simValue = jaccardSim(interestToPages[A], interestToPages[B])
-        sims.push({ interestA: A, interestB: B, similarity: simValue })
-      }
-    }
-  }
-
-  const sortedSimsDesc = sims.slice().sort((x, y) => y.similarity - x.similarity)
-  const sortedSimsAsc = sims.slice().sort((x, y) => x.similarity - y.similarity)
-
-  const interestCentroidSims = sortedSimsDesc.slice(0, 5)
-  const interestGapPairs   = sortedSimsAsc.slice(0, 5)
-
-  const result: any = {
+  return {
     sitemap: parsedWebsiteData.sitemap,
     summary: parsedWebsiteData.summary,
     pageFieldTotals: sortedPageFieldTotals,
     fieldInterestCounts: sortedFieldInterestCounts,
-    topInterests,
-    underservedInterests,
   }
-  if (interestCentroidSims.length) result.interestCentroidSims = interestCentroidSims
-  if (interestGapPairs.length)   result.interestGapPairs   = interestGapPairs
-
-  return result
 }
