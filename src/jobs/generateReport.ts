@@ -61,9 +61,7 @@ export async function run({
   const fieldInterestCounts: Record<string, Record<string, number>> = {}
 
   for (const row of pageRows) {
-    const url: string = row.url
     let parsedPageData: Record<string, any> | null = null
-
     if (typeof row.page_data === 'object' && row.page_data !== null) {
       parsedPageData = row.page_data
     } else if (typeof row.page_data === 'string') {
@@ -91,16 +89,11 @@ export async function run({
           if (typeof item === 'string') {
             label = item.trim()
           } else if (item && typeof item === 'object') {
-            if ('label' in item && typeof (item as any).label === 'string') {
+            if (key in item && typeof (item as any)[key] === 'string') {
+              label = ((item as any)[key] as string).trim()
+            }
+            else if ('label' in item && typeof (item as any).label === 'string') {
               label = ((item as any).label as string).trim()
-            } else {
-              for (const [prop, val] of Object.entries(item)) {
-                if (prop === 'description') continue
-                if (typeof val === 'string') {
-                  label = val.trim()
-                  break
-                }
-              }
             }
           }
 
