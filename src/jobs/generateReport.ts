@@ -119,15 +119,64 @@ export async function run({
     }))
   }
 
+  function printTable(
+    rows: Array<Record<string, string | number>>,
+    columns: string[]
+  ) {
+    const widths: Record<string, number> = {}
+    for (const col of columns) {
+      widths[col] = col.length
+    }
+    for (const row of rows) {
+      for (const col of columns) {
+        const cell = String(row[col] === undefined ? '' : row[col])
+        widths[col] = Math.max(widths[col], cell.length)
+      }
+    }
+
+    const header = columns
+      .map((col) => col.padEnd(widths[col]))
+      .join(' | ')
+    const separator = columns
+      .map((col) => ''.padEnd(widths[col], '-'))
+      .join('-|-')
+
+    console.log(header)
+    console.log(separator)
+
+    for (const row of rows) {
+      const line = columns
+        .map((col) => {
+          const cell = String(row[col] === undefined ? '' : row[col])
+          return cell.padEnd(widths[col])
+        })
+        .join(' | ')
+      console.log(line)
+    }
+  }
+
   console.log('\nSitemap:', parsedWebsiteData.sitemap)
   console.log('Summary:', parsedWebsiteData.summary, '\n')
 
   console.log('Page Field Totals:')
-  console.table(pageFieldTotals)
+  printTable(
+    pageFieldTotals.map((entry) => ({
+      field: entry.field,
+      total: entry.total,
+    })),
+    ['field', 'total']
+  )
 
   for (const field of Object.keys(fieldInterestCounts)) {
     console.log(`\n${field.charAt(0).toUpperCase() + field.slice(1)} Counts:`)
-    console.table(fieldInterestCounts[field])
+    printTable(
+      fieldInterestCounts[field].map((entry) => ({
+        label: entry.label,
+        count: entry.count,
+        percentage: entry.percentage,
+      })),
+      ['label', 'count', 'percentage']
+    )
   }
 
   return {
