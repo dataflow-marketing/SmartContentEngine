@@ -119,6 +119,17 @@ export async function run({
     }))
   }
 
+  console.log('\nSitemap:', parsedWebsiteData.sitemap)
+  console.log('Summary:', parsedWebsiteData.summary, '\n')
+
+  console.log('Page Field Totals:')
+  console.table(pageFieldTotals)
+
+  for (const field of Object.keys(fieldInterestCounts)) {
+    console.log(`\n${field.charAt(0).toUpperCase() + field.slice(1)} Counts:`)
+    console.table(fieldInterestCounts[field])
+  }
+
   return {
     sitemap: parsedWebsiteData.sitemap,
     summary: parsedWebsiteData.summary,
