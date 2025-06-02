@@ -89,11 +89,14 @@ export async function run({
           if (typeof item === 'string') {
             label = item.trim()
           } else if (item && typeof item === 'object') {
-            if (key in item && typeof (item as any)[key] === 'string') {
-              label = ((item as any)[key] as string).trim()
+            if ('interest' in item && typeof (item as any).interest === 'string') {
+              label = ((item as any).interest as string).trim()
             }
             else if ('label' in item && typeof (item as any).label === 'string') {
               label = ((item as any).label as string).trim()
+            }
+            else if (key in item && typeof (item as any)[key] === 'string') {
+              label = ((item as any)[key] as string).trim()
             }
           }
 
