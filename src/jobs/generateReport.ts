@@ -16,17 +16,15 @@ export async function run({
 }: ReportParams): Promise<{
   sitemap: string
   summary: string
-  pageFieldTotals: Record<string, number>
-  fieldInterestCounts: Record<string, Array<Record<string, number>>>
+  pageFieldTotals: Array<{ field: string; total: number }>
+  fieldInterestCounts: Record<string, Array<{ label: string; count: number; percentage: number }>>
 }> {
   console.log(`📝 Starting "generateReport" job for database "${db}"`)
   console.log(`❌ Ignoring fields: ${JSON.stringify(ignoreFields)}`)
 
   const pool = await getPool(db)
 
-  const [websiteRows] = await pool.query<any[]>(
-    'SELECT website_data FROM website LIMIT 1'
-  )
+  const [websiteRows] = await pool.query<any[]>(`SELECT website_data FROM website LIMIT 1`)
   if (websiteRows.length === 0) {
     throw new Error('⚠️ No rows found in `website` table.')
   }
@@ -53,12 +51,10 @@ export async function run({
     )
   }
 
-  const [pageRows] = await pool.query<any[]>(
-    'SELECT url, page_data FROM pages'
-  )
+  const [pageRows] = await pool.query<any[]>(`SELECT url, page_data FROM pages`)
 
-  const totals: Record<string, number> = {}
-  const fieldInterestCountsRaw: Record<string, Record<string, number>> = {}
+  const totalsRaw: Record<string, number> = {}
+  const fieldCountsRaw: Record<string, Record<string, number>> = {}
 
   for (const row of pageRows) {
     let parsedPageData: Record<string, any> | null = null
@@ -79,9 +75,9 @@ export async function run({
 
       if (Array.isArray(value)) {
         const count = value.length
-        totals[key] = (totals[key] || 0) + count
+        totalsRaw[key] = (totalsRaw[key] || 0) + count
 
-        fieldInterestCountsRaw[key] = fieldInterestCountsRaw[key] || {}
+        fieldCountsRaw[key] = fieldCountsRaw[key] || {}
 
         for (const item of value) {
           let label: string | null = null
@@ -101,32 +97,32 @@ export async function run({
           }
 
           if (label && label.length > 0 && !label.startsWith('[') && !label.startsWith('{')) {
-            fieldInterestCountsRaw[key][label] = (fieldInterestCountsRaw[key][label] || 0) + 1
+            fieldCountsRaw[key][label] = (fieldCountsRaw[key][label] || 0) + 1
           }
         }
       }
     }
   }
 
-  const sortedPageFieldTotals = Object.fromEntries(
-    Object.entries(totals).sort(([aKey, aCount], [bKey, bCount]) => {
-      if (bCount !== aCount) return bCount - aCount
-      return aKey.localeCompare(bKey)
-    })
-  )
+  const pageFieldTotals = Object.entries(totalsRaw)
+    .sort(([, aCount], [, bCount]) => bCount - aCount)
+    .map(([field, total]) => ({ field, total }))
 
-  const fieldInterestCounts: Record<string, Array<Record<string, number>>> = {}
-  for (const [field, counts] of Object.entries(fieldInterestCountsRaw)) {
-    const sortedCounts = Object.entries(counts).sort(([_, aCnt], [__, bCnt]) => {
-      return bCnt - aCnt
-    })
-    fieldInterestCounts[field] = sortedCounts.map(([label, cnt]) => ({ [label]: cnt }))
+  const fieldInterestCounts: Record<string, Array<{ label: string; count: number; percentage: number }>> = {}
+  for (const [field, counts] of Object.entries(fieldCountsRaw)) {
+    const totalForField = totalsRaw[field] || 1
+    const sortedEntries = Object.entries(counts).sort(([, aCnt], [, bCnt]) => bCnt - aCnt)
+    fieldInterestCounts[field] = sortedEntries.map(([label, cnt]) => ({
+      label,
+      count: cnt,
+      percentage: parseFloat(((cnt / totalForField) * 100).toFixed(1)),
+    }))
   }
 
   return {
     sitemap: parsedWebsiteData.sitemap,
     summary: parsedWebsiteData.summary,
-    pageFieldTotals: sortedPageFieldTotals,
+    pageFieldTotals,
     fieldInterestCounts,
   }
 }
