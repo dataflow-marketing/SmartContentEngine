@@ -24,7 +24,6 @@ export async function run({
 
   const pool = await getPool(db)
 
-  // 1) Fetch sitemap + summary
   const [websiteRows] = await pool.query<any[]>(
     'SELECT website_data FROM website LIMIT 1'
   )
@@ -84,21 +83,28 @@ export async function run({
         const count = value.length
         totals[key] = (totals[key] || 0) + count
 
-        if (key === 'interests') {
-          for (const item of value) {
-            if (
-              item &&
-              typeof item === 'object' &&
-              'interest' in item &&
-              typeof item.interest === 'string'
-            ) {
-              const rawLabel = item.interest.trim()
-              if (rawLabel.startsWith('[') || rawLabel.startsWith('{')) continue
+        fieldInterestCounts[key] = fieldInterestCounts[key] || {}
 
-              fieldInterestCounts[key] = fieldInterestCounts[key] || {}
-              fieldInterestCounts[key][rawLabel] =
-                (fieldInterestCounts[key][rawLabel] || 0) + 1
+        for (const item of value) {
+          let label: string | null = null
+
+          if (typeof item === 'string') {
+            label = item.trim()
+          } else if (item && typeof item === 'object') {
+            if (key === 'interests' && 'interest' in item && typeof item.interest === 'string') {
+              label = (item.interest as string).trim()
+            } else {
+              for (const [prop, val] of Object.entries(item)) {
+                if (typeof val === 'string') {
+                  label = val.trim()
+                  break
+                }
+              }
             }
+          }
+
+          if (label && label.length > 0 && !label.startsWith('[') && !label.startsWith('{')) {
+            fieldInterestCounts[key][label] = (fieldInterestCounts[key][label] || 0) + 1
           }
         }
       }
