@@ -18,6 +18,7 @@ export async function run({
   summary: string
   pageFieldTotals: Array<{ field: string; total: number }>
   fieldInterestCounts: Record<string, Array<{ label: string; count: number; percentage: number }>>
+  htmlReport: string
 }> {
   console.log(`📝 Starting "generateReport" job for database "${db}"`)
   console.log(`❌ Ignoring fields: ${JSON.stringify(ignoreFields)}`)
@@ -119,70 +120,77 @@ export async function run({
     }))
   }
 
-  function printTable(
-    rows: Array<Record<string, string | number>>,
-    columns: string[]
-  ) {
-    const widths: Record<string, number> = {}
-    for (const col of columns) {
-      widths[col] = col.length
-    }
-    for (const row of rows) {
-      for (const col of columns) {
-        const cell = String(row[col] === undefined ? '' : row[col])
-        widths[col] = Math.max(widths[col], cell.length)
-      }
-    }
+  let htmlReport = `
+    <html>
+      <head>
+        <style>
+          table { border-collapse: collapse; width: 100%; margin-bottom: 20px; }
+          th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
+          th { background-color: #f0f0f0; }
+          caption { font-weight: bold; margin-bottom: 8px; }
+        </style>
+      </head>
+      <body>
+        <h1>Report</h1>
+        <h2>Sitemap</h2>
+        <p><a href="${parsedWebsiteData.sitemap}">${parsedWebsiteData.sitemap}</a></p>
+        <h2>Summary</h2>
+        <p>${parsedWebsiteData.summary}</p>
 
-    const header = columns
-      .map((col) => col.padEnd(widths[col]))
-      .join(' | ')
-    const separator = columns
-      .map((col) => ''.padEnd(widths[col], '-'))
-      .join('-|-')
-
-    console.log(header)
-    console.log(separator)
-
-    for (const row of rows) {
-      const line = columns
-        .map((col) => {
-          const cell = String(row[col] === undefined ? '' : row[col])
-          return cell.padEnd(widths[col])
-        })
-        .join(' | ')
-      console.log(line)
-    }
+        <h2>Page Field Totals</h2>
+        <table>
+          <thead>
+            <tr><th>Field</th><th>Total</th></tr>
+          </thead>
+          <tbody>
+  `
+  for (const { field, total } of pageFieldTotals) {
+    htmlReport += `
+            <tr>
+              <td>${field}</td>
+              <td>${total}</td>
+            </tr>
+    `
   }
-
-  console.log('\nSitemap:', parsedWebsiteData.sitemap)
-  console.log('Summary:', parsedWebsiteData.summary, '\n')
-
-  console.log('Page Field Totals:')
-  printTable(
-    pageFieldTotals.map((entry) => ({
-      field: entry.field,
-      total: entry.total,
-    })),
-    ['field', 'total']
-  )
+  htmlReport += `
+          </tbody>
+        </table>
+  `
 
   for (const field of Object.keys(fieldInterestCounts)) {
-    console.log(`\n${field.charAt(0).toUpperCase() + field.slice(1)} Counts:`)
-    printTable(
-      fieldInterestCounts[field].map((entry) => ({
-        label: entry.label,
-        count: entry.count,
-        percentage: entry.percentage,
-      })),
-      ['label', 'count', 'percentage']
-    )
+    htmlReport += `
+        <h2>${field.charAt(0).toUpperCase() + field.slice(1)} Counts</h2>
+        <table>
+          <thead>
+            <tr><th>Label</th><th>Count</th><th>Percentage (%)</th></tr>
+          </thead>
+          <tbody>
+    `
+    for (const { label, count, percentage } of fieldInterestCounts[field]) {
+      htmlReport += `
+            <tr>
+              <td>${label}</td>
+              <td>${count}</td>
+              <td>${percentage}</td>
+            </tr>
+      `
+    }
+    htmlReport += `
+          </tbody>
+        </table>
+    `
   }
+
+  htmlReport += `
+      </body>
+    </html>
+  `
 
   return {
     sitemap: parsedWebsiteData.sitemap,
     summary: parsedWebsiteData.summary,
     pageFieldTotals,
     fieldInterestCounts,
+    htmlReport,
   }
 }
