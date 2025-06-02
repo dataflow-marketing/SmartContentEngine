@@ -53,6 +53,7 @@ export async function run({
     )
   }
 
+  // 2) Fetch all pages
   const [pageRows] = await pool.query<any[]>(
     'SELECT url, page_data FROM pages'
   )
@@ -91,15 +92,10 @@ export async function run({
           if (typeof item === 'string') {
             label = item.trim()
           } else if (item && typeof item === 'object') {
-            if (key === 'interests' && 'interest' in item && typeof item.interest === 'string') {
+            if ('label' in item && typeof (item as any).label === 'string') {
+              label = ((item as any).label as string).trim()
+            } else if (key === 'interests' && 'interest' in item && typeof item.interest === 'string') {
               label = (item.interest as string).trim()
-            } else {
-              for (const [prop, val] of Object.entries(item)) {
-                if (typeof val === 'string') {
-                  label = val.trim()
-                  break
-                }
-              }
             }
           }
 
