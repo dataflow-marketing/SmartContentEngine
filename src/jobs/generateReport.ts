@@ -17,7 +17,7 @@ export async function run({
   sitemap: string
   summary: string
   pageFieldTotals: Record<string, number>
-  fieldInterestCounts: Record<string, Record<string, number>>
+  fieldInterestCounts: Record<string, Array<Record<string, number>>>
 }> {
   console.log(`📝 Starting "generateReport" job for database "${db}"`)
   console.log(`❌ Ignoring fields: ${JSON.stringify(ignoreFields)}`)
@@ -58,7 +58,7 @@ export async function run({
   )
 
   const totals: Record<string, number> = {}
-  const fieldInterestCounts: Record<string, Record<string, number>> = {}
+  const fieldInterestCountsRaw: Record<string, Record<string, number>> = {}
 
   for (const row of pageRows) {
     let parsedPageData: Record<string, any> | null = null
@@ -81,7 +81,7 @@ export async function run({
         const count = value.length
         totals[key] = (totals[key] || 0) + count
 
-        fieldInterestCounts[key] = fieldInterestCounts[key] || {}
+        fieldInterestCountsRaw[key] = fieldInterestCountsRaw[key] || {}
 
         for (const item of value) {
           let label: string | null = null
@@ -98,7 +98,7 @@ export async function run({
           }
 
           if (label && label.length > 0 && !label.startsWith('[') && !label.startsWith('{')) {
-            fieldInterestCounts[key][label] = (fieldInterestCounts[key][label] || 0) + 1
+            fieldInterestCountsRaw[key][label] = (fieldInterestCountsRaw[key][label] || 0) + 1
           }
         }
       }
@@ -112,19 +112,18 @@ export async function run({
     })
   )
 
-  const sortedFieldInterestCounts: Record<string, Record<string, number>> = {}
-  for (const [field, counts] of Object.entries(fieldInterestCounts)) {
-    const sortedCounts = Object.entries(counts).sort(([aLabel, aCnt], [bLabel, bCnt]) => {
-      if (bCnt !== aCnt) return bCnt - aCnt
-      return aLabel.localeCompare(bLabel)
+  const fieldInterestCounts: Record<string, Array<Record<string, number>>> = {}
+  for (const [field, counts] of Object.entries(fieldInterestCountsRaw)) {
+    const sortedCounts = Object.entries(counts).sort(([_, aCnt], [__, bCnt]) => {
+      return bCnt - aCnt
     })
-    sortedFieldInterestCounts[field] = Object.fromEntries(sortedCounts)
+    fieldInterestCounts[field] = sortedCounts.map(([label, cnt]) => ({ [label]: cnt }))
   }
 
   return {
     sitemap: parsedWebsiteData.sitemap,
     summary: parsedWebsiteData.summary,
     pageFieldTotals: sortedPageFieldTotals,
-    fieldInterestCounts: sortedFieldInterestCounts,
+    fieldInterestCounts,
   }
 }
