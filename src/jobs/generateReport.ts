@@ -18,87 +18,113 @@ export async function run({
   summary: string
   pageFieldTotals: Array<{ field: string; total: number }>
   fieldInterestCounts: Record<string, Array<{ label: string; count: number; percentage: number }>>
+  htmlReport: string
 }> {
   console.log(`📝 Starting "generateReport" job for database "${db}"`)
   console.log(`❌ Ignoring fields: ${JSON.stringify(ignoreFields)}`)
 
-  const pool = await getPool(db)
-
-  const [websiteRows] = await pool.query<any[]>(`SELECT website_data FROM website LIMIT 1`)
-  if (websiteRows.length === 0) {
-    throw new Error('⚠️ No rows found in `website` table.')
+  let pool
+  try {
+    pool = await getPool(db)
+  } catch (e) {
+    console.error('❌ Failed to get DB pool:', e)
+    throw new Error('Database connection error')
   }
-  const rawWebsiteData = websiteRows[0].website_data
-  let parsedWebsiteData: { sitemap?: string; summary?: string }
-  if (typeof rawWebsiteData === 'object' && rawWebsiteData !== null) {
-    parsedWebsiteData = rawWebsiteData as { sitemap?: string; summary?: string }
-  } else if (typeof rawWebsiteData === 'string') {
-    try {
-      parsedWebsiteData = JSON.parse(rawWebsiteData)
-    } catch {
-      throw new Error(`⚠️ Failed to parse website_data JSON`)
+
+  let parsedWebsiteData: { sitemap: string; summary: string } = { sitemap: '', summary: '' }
+  try {
+    const [websiteRows] = await pool.query<any[]>(`SELECT website_data FROM website LIMIT 1`)
+    if (!Array.isArray(websiteRows) || websiteRows.length === 0) {
+      console.warn('⚠️ No rows found in `website` table. Using empty sitemap/summary.')
+    } else {
+      const rawWebsiteData = websiteRows[0].website_data
+      let interim: any = {}
+      if (typeof rawWebsiteData === 'object' && rawWebsiteData !== null) {
+        interim = rawWebsiteData
+      } else if (typeof rawWebsiteData === 'string') {
+        try {
+          interim = JSON.parse(rawWebsiteData)
+        } catch (e) {
+          console.error('⚠️ Failed to parse website_data JSON:', rawWebsiteData)
+        }
+      } else {
+        console.warn(`⚠️ Unexpected type for website_data: ${typeof rawWebsiteData}`)
+      }
+      if (typeof interim.sitemap === 'string') {
+        parsedWebsiteData.sitemap = interim.sitemap
+      } else {
+        console.warn('⚠️ Missing or non-string sitemap in website_data.')
+      }
+      if (typeof interim.summary === 'string') {
+        parsedWebsiteData.summary = interim.summary
+      } else {
+        console.warn('⚠️ Missing or non-string summary in website_data.')
+      }
     }
-  } else {
-    throw new Error(`⚠️ Unexpected type for website_data: ${typeof rawWebsiteData}`)
+  } catch (e) {
+    console.error('❌ Error fetching website_data:', e)
   }
 
-  if (
-    typeof parsedWebsiteData.sitemap !== 'string' ||
-    typeof parsedWebsiteData.summary !== 'string'
-  ) {
-    throw new Error(
-      '⚠️ Invalid format in website_data: expected both "sitemap" and "summary" as strings.'
-    )
+  let pageRows: Array<{ url: string; page_data: any }>
+  try {
+    const result = await pool.query<any[]>(`SELECT url, page_data FROM pages`)
+    pageRows = Array.isArray(result[0]) ? (result[0] as any[]) : []
+    if (pageRows.length === 0) {
+      console.warn('⚠️ No rows found in `pages` table.')
+    }
+  } catch (e) {
+    console.error('❌ Error querying pages table:', e)
+    throw new Error('Failed to fetch pages')
   }
-
-  const [pageRows] = await pool.query<any[]>(`SELECT url, page_data FROM pages`)
 
   const totalsRaw: Record<string, number> = {}
   const fieldCountsRaw: Record<string, Record<string, number>> = {}
 
   for (const row of pageRows) {
     let parsedPageData: Record<string, any> | null = null
-    if (typeof row.page_data === 'object' && row.page_data !== null) {
-      parsedPageData = row.page_data
-    } else if (typeof row.page_data === 'string') {
-      try {
+    try {
+      if (typeof row.page_data === 'object' && row.page_data !== null) {
+        parsedPageData = row.page_data
+      } else if (typeof row.page_data === 'string') {
         parsedPageData = JSON.parse(row.page_data)
-      } catch {
-        continue
       }
-    } else {
+    } catch (e) {
+      console.warn(`⚠️ Skipping page ${row.url}: invalid JSON in page_data`, e)
+      continue
+    }
+    if (!parsedPageData || typeof parsedPageData !== 'object') {
+      console.warn(`⚠️ Skipping page ${row.url}: page_data is not an object`)
       continue
     }
 
     for (const [key, value] of Object.entries(parsedPageData)) {
       if (ignoreFields.includes(key)) continue
+      if (!Array.isArray(value)) continue
 
-      if (Array.isArray(value)) {
-        const count = value.length
-        totalsRaw[key] = (totalsRaw[key] || 0) + count
+      const count = value.length
+      totalsRaw[key] = (totalsRaw[key] || 0) + count
 
-        fieldCountsRaw[key] = fieldCountsRaw[key] || {}
+      if (!fieldCountsRaw[key] || typeof fieldCountsRaw[key] !== 'object') {
+        fieldCountsRaw[key] = {}
+      }
 
-        for (const item of value) {
-          let label: string | null = null
+      for (const item of value) {
+        let label: string | null = null
 
-          if (typeof item === 'string') {
-            label = item.trim()
-          } else if (item && typeof item === 'object') {
-            if ('interest' in item && typeof (item as any).interest === 'string') {
-              label = ((item as any).interest as string).trim()
-            }
-            else if ('label' in item && typeof (item as any).label === 'string') {
-              label = ((item as any).label as string).trim()
-            }
-            else if (key in item && typeof (item as any)[key] === 'string') {
-              label = ((item as any)[key] as string).trim()
-            }
+        if (typeof item === 'string') {
+          label = item.trim()
+        } else if (item && typeof item === 'object') {
+          if ('interest' in item && typeof (item as any).interest === 'string') {
+            label = ((item as any).interest as string).trim()
+          } else if ('label' in item && typeof (item as any).label === 'string') {
+            label = ((item as any).label as string).trim()
+          } else if (key in item && typeof (item as any)[key] === 'string') {
+            label = ((item as any)[key] as string).trim()
           }
+        }
 
-          if (label && label.length > 0 && !label.startsWith('[') && !label.startsWith('{')) {
-            fieldCountsRaw[key][label] = (fieldCountsRaw[key][label] || 0) + 1
-          }
+        if (label && label.length > 0 && !label.startsWith('[') && !label.startsWith('{')) {
+          fieldCountsRaw[key][label] = (fieldCountsRaw[key][label] || 0) + 1
         }
       }
     }
@@ -119,70 +145,77 @@ export async function run({
     }))
   }
 
-  function printTable(
-    rows: Array<Record<string, string | number>>,
-    columns: string[]
-  ) {
-    const widths: Record<string, number> = {}
-    for (const col of columns) {
-      widths[col] = col.length
-    }
-    for (const row of rows) {
-      for (const col of columns) {
-        const cell = String(row[col] === undefined ? '' : row[col])
-        widths[col] = Math.max(widths[col], cell.length)
-      }
-    }
+  let htmlReport = `
+    <html>
+      <head>
+        <style>
+          table { border-collapse: collapse; width: 100%; margin-bottom: 20px; }
+          th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
+          th { background-color: #f0f0f0; }
+          caption { font-weight: bold; margin-bottom: 8px; }
+        </style>
+      </head>
+      <body>
+        <h1>Report</h1>
+        <h2>Sitemap</h2>
+        <p>${parsedWebsiteData.sitemap ? `<a href="${parsedWebsiteData.sitemap}">${parsedWebsiteData.sitemap}</a>` : 'N/A'}</p>
+        <h2>Summary</h2>
+        <p>${parsedWebsiteData.summary || 'N/A'}</p>
 
-    const header = columns
-      .map((col) => col.padEnd(widths[col]))
-      .join(' | ')
-    const separator = columns
-      .map((col) => ''.padEnd(widths[col], '-'))
-      .join('-|-')
-
-    console.log(header)
-    console.log(separator)
-
-    for (const row of rows) {
-      const line = columns
-        .map((col) => {
-          const cell = String(row[col] === undefined ? '' : row[col])
-          return cell.padEnd(widths[col])
-        })
-        .join(' | ')
-      console.log(line)
-    }
+        <h2>Page Field Totals</h2>
+        <table>
+          <thead>
+            <tr><th>Field</th><th>Total</th></tr>
+          </thead>
+          <tbody>
+  `
+  for (const { field, total } of pageFieldTotals) {
+    htmlReport += `
+            <tr>
+              <td>${field}</td>
+              <td>${total}</td>
+            </tr>
+    `
   }
-
-  console.log('\nSitemap:', parsedWebsiteData.sitemap)
-  console.log('Summary:', parsedWebsiteData.summary, '\n')
-
-  console.log('Page Field Totals:')
-  printTable(
-    pageFieldTotals.map((entry) => ({
-      field: entry.field,
-      total: entry.total,
-    })),
-    ['field', 'total']
-  )
+  htmlReport += `
+          </tbody>
+        </table>
+  `
 
   for (const field of Object.keys(fieldInterestCounts)) {
-    console.log(`\n${field.charAt(0).toUpperCase() + field.slice(1)} Counts:`)
-    printTable(
-      fieldInterestCounts[field].map((entry) => ({
-        label: entry.label,
-        count: entry.count,
-        percentage: entry.percentage,
-      })),
-      ['label', 'count', 'percentage']
-    )
+    htmlReport += `
+        <h2>${field.charAt(0).toUpperCase() + field.slice(1)} Counts</h2>
+        <table>
+          <thead>
+            <tr><th>Label</th><th>Count</th><th>Percentage (%)</th></tr>
+          </thead>
+          <tbody>
+    `
+    for (const { label, count, percentage } of fieldInterestCounts[field]) {
+      htmlReport += `
+            <tr>
+              <td>${label}</td>
+              <td>${count}</td>
+              <td>${percentage}</td>
+            </tr>
+      `
+    }
+    htmlReport += `
+          </tbody>
+        </table>
+    `
   }
+
+  htmlReport += `
+      </body>
+    </html>
+  `
 
   return {
     sitemap: parsedWebsiteData.sitemap,
     summary: parsedWebsiteData.summary,
     pageFieldTotals,
     fieldInterestCounts,
+    htmlReport,
   }
 }
